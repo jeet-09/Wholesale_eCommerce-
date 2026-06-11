@@ -1,0 +1,32 @@
+---
+description: Fastify backend architecture - layering, modules, repositories, DI, validation
+globs: backend/**/*.ts
+alwaysApply: false
+---
+
+# Backend Architecture (Fastify + TypeScript + Prisma)
+
+Reference: `TECHNICAL-DETAILS.MD`.
+
+## Layering (strict, one-directional)
+`route → controller → service → repository → Prisma`
+- **Route:** path + method + Zod schema + hooks (auth/RBAC) → calls controller. No logic.
+- **Controller:** parse input → call service → return `ok()/paginated()`. No business logic, no Prisma, no `req`/`reply` leaking downward.
+- **Service:** business rules, orchestration, transactions, domain errors. No HTTP, no Prisma.
+- **Repository:** the ONLY Prisma caller. Encapsulates queries + `deletedAt: null` filtering.
+
+## Module anatomy (organize by domain, not by type)
+```
+src/modules/<domain>/
+  <domain>.routes.ts  .controller.ts  .service.ts  .repository.ts
+  <domain>.schemas.ts  .types.ts  __tests__/
+```
+Shared: `src/common` (errors, responses, base repo), `src/config`, `src/database`, `src/plugins`, `src/middleware`, `src/utils`.
+
+## Rules
+- **Dependency Injection:** inject repositories/deps via constructor; never `new` them inside a service. Depend on interfaces for testability.
+- **Validation:** every request body/params/query validated with Zod via the Fastify type provider (also feeds OpenAPI). Unknown fields stripped.
+- **Cross-cutting concerns** (auth, RBAC, logging, error mapping, request context) are plugins/hooks applied once — never duplicated in handlers.
+- **Thin handlers:** if a handler has branching business logic, move it to the service.
+- Repositories return `{ items, total }` for lists so services build pagination meta.
+- No `console.log` — use `req.log` / injected logger. Validate env at startup (fail fast).

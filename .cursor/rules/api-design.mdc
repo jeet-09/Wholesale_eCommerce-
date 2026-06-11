@@ -1,0 +1,30 @@
+---
+description: REST API design - versioning, response envelope, status codes, idempotency, OpenAPI
+globs: backend/**/*.ts
+alwaysApply: false
+---
+
+# API Design (clients: web now; mobile + partners later)
+
+Design every endpoint as a stable public contract. Reference: `README.md` → API Standards.
+
+## Versioning
+- All routes under `/api/v1`. A shipped contract is frozen.
+- Additive changes (new optional field/endpoint) stay in the version. **Breaking changes ⇒ `/api/v2`** — never silently change `v1`.
+
+## Response envelope (always)
+- Success: `{ success: true, data, meta: { requestId, timestamp, pagination? } }`
+- Error: `{ success: false, error: { code, message, details[] }, meta }`
+- `details` is always an array. `requestId` mirrors the `x-request-id` header.
+- Build via shared helpers (`ok`, `paginated`, `fail`) — never hand-roll JSON.
+
+## Status codes
+200 ok · 201 created · 204 no-content · 400 malformed · 401 unauth · 403 forbidden · 404 not-found · 409 conflict · 422 validation · 429 rate-limited · 500 internal (never leak internals).
+
+## Conventions
+- Clients switch on stable `error.code` (catalog in `README.md`), never on human messages.
+- List endpoints: paginated (default 20, max 100), `?page&pageSize&sort=-createdAt&<filters>`.
+- Money returned as decimal **string** + explicit `currency`. Timestamps ISO-8601 UTC. IDs are UUID strings.
+- Side-effecting `POST` (orders, payments) honor the `Idempotency-Key` header.
+- Every endpoint is documented via OpenAPI generated from its Zod schemas (served at `/docs`). Docs must never drift from code.
+- Default-deny auth: a route is protected unless explicitly public; RBAC + resource ownership enforced.

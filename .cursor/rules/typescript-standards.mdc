@@ -1,0 +1,30 @@
+---
+description: TypeScript coding standards for the whole codebase
+globs: **/*.{ts,tsx}
+alwaysApply: false
+---
+
+# TypeScript Standards
+
+- **Strict mode on.** No `any` — use `unknown` + narrowing. No non-null `!` without a written reason.
+- Public functions have **explicit return types**; type all boundaries (no implicit `any`).
+- Prefer `type`/`interface` from inferred Zod schemas (`z.infer`) so runtime and compile-time agree — one source of truth.
+- **Naming:** `camelCase` (vars/functions), `PascalCase` (types/classes/components), `UPPER_SNAKE_CASE` (constants), `kebab-case` file names. `snake_case` only in the DB.
+- Small, single-responsibility, pure-where-possible functions. Isolate side effects.
+- **No magic numbers/strings** — name constants or read from config.
+- Comments explain **why**, not what. No narration comments. Delete dead code, don't comment it out.
+- Imports ordered: node builtins → external → internal. No unused imports/vars.
+- Avoid default exports for modules with multiple symbols; prefer named exports.
+- Use discriminated unions + exhaustive `switch` (with `never` check) for state/variant handling.
+
+```typescript
+// ✅ exhaustive handling
+function label(s: OrderStatus): string {
+  switch (s) {
+    case 'PENDING': return 'Pending';
+    case 'ACCEPTED': return 'Accepted';
+    // ...all cases...
+    default: { const _exhaustive: never = s; return _exhaustive; }
+  }
+}
+```

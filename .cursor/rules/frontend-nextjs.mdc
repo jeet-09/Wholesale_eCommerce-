@@ -1,0 +1,36 @@
+---
+description: Next.js frontend conventions - App Router, data fetching, state, components
+globs: frontend/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Frontend (Next.js + React + TypeScript)
+
+Reference: `TECHNICAL-DETAILS.MD` §12.
+
+## Structure & components
+- App Router; **Server Components by default**, Client Components (`"use client"`) only when interactivity is required.
+- **Feature folders mirror backend domains** (`features/orders`, `features/products`).
+- ShadCN UI + Tailwind. Presentational components are pure; data fetching lives in hooks (`useOrders`, `useCreateOrder`).
+- Every async view has explicit **loading, empty, and error** states (skeletons + error boundaries). Never a spinner that can hang forever.
+
+## Data & state
+- **Server state → TanStack Query** (caching, retries, invalidation). **UI/client state → Zustand.** Never copy server state into Zustand.
+- All network calls go through the **typed API client** in `src/services` — it injects auth, unwraps the standard envelope, and throws typed client errors. Prefer types generated from the backend OpenAPI spec.
+- Handle the standard error shape: branch on `error.code`, surface `error.message`, show field `details` on forms.
+
+## Quality
+- Strict TypeScript, no `any`. Props and hook returns are explicitly typed.
+- Forms validated with Zod (share schemas with the API contract where feasible).
+- No secrets in client code; only `NEXT_PUBLIC_*` env vars reach the browser.
+- Accessible by default (labels, roles, keyboard nav); responsive for web + mobile web.
+
+```typescript
+export function useOrders(params: OrderQuery) {
+  return useQuery({
+    queryKey: ['orders', params],
+    queryFn: () => api.get('/api/v1/orders', params),
+    staleTime: 30_000,
+  });
+}
+```

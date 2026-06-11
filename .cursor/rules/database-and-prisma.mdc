@@ -1,0 +1,32 @@
+---
+description: Database & Prisma conventions - schema, migrations, soft deletes, money, transactions
+globs: backend/prisma/**/*.prisma
+alwaysApply: false
+---
+
+# Database & Prisma
+
+The Prisma schema MUST match `DATABASE.md`. If they diverge, `DATABASE.md` + committed migrations win. Update both in the same PR.
+
+## Standard columns (every business table)
+`id UUID (v7) PK`, `createdAt`, `updatedAt`, `deletedAt?` — plus `createdBy?`/`updatedBy?` for business actions. Pure mapping tables are exempt from `deletedAt`.
+
+## Types & conventions
+- **UUID** primary keys (prefer v7). Never auto-increment. Human IDs (`orderNumber`, `sku`, `vendorCode`) are separate columns.
+- **Money:** `Decimal @db.Decimal(14,2)` + a `currency` field. **Never** Float for money. Quantities `Decimal(14,3)`.
+- **Time:** `DateTime @db.Timestamptz` — UTC everywhere. Never bare timestamp.
+- **Enums:** Prisma/Postgres native enums for domain values; lookup tables for runtime-editable reference data (payment methods, settings).
+- **Concurrency:** `version Int` on contended rows (`inventories`, `ledgers`); update with optimistic lock (`WHERE id=? AND version=?`).
+
+## Migrations
+- **Prisma Migrate only, forward-only, reviewed, committed.** Never `prisma db push` to shared envs.
+- Breaking changes use expand → migrate → contract so live app/mobile versions never break.
+
+## Data rules
+- **Soft delete only** for business data; reads filter `deletedAt: null` (centralize in the base repository).
+- Append-only tables (`product_prices`, `order_status_history`, `ledger_entries`, `audit_logs`) are never updated/deleted.
+- **Inventory:** `sellable = available − reserved` (subtraction). Enforce `reserved <= available`, non-negative via CHECKs.
+- **Orders are immutable snapshots:** copy product name/sku/unit/price into `order_items`; never read live product data for an existing order.
+- Foreign keys everywhere; `ON DELETE RESTRICT` (no cascade delete of business data), `ON UPDATE CASCADE` allowed.
+- Multi-write ops use `prisma.$transaction`. **No network/IO inside a transaction** — use `outbox_events`.
+- Soft-delete-aware uniqueness uses partial unique indexes (`WHERE deleted_at IS NULL`).

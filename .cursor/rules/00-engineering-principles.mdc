@@ -1,0 +1,30 @@
+---
+description: Core engineering principles for the B2B procurement platform (always-on golden rules)
+alwaysApply: true
+---
+
+# Engineering Principles (Production-Grade, Always)
+
+This is a long-lived, MNC-grade codebase built to extend into mobile apps, more portals, payments, and logistics. Default to the clearer, safer, more extensible option. Authoritative docs: `README.md`, `RULES.md`, `TECHNICAL-DETAILS.MD`, `DATABASE.md`.
+
+## Non-negotiables
+- **No business logic in routes/controllers.** Flow: `route → controller → service → repository → Prisma`. A lower layer never imports an upper one.
+- **Services never call Prisma directly** — only repositories do.
+- **Every async call is `await`ed.** No floating promises, no fire-and-forget.
+- **No swallowed errors.** No empty `catch`. Throw typed domain errors; map them centrally.
+- **Validate all input at the boundary** with Zod before business logic.
+- **Preserve data:** soft-delete only, never hard-delete business data; history tables are append-only.
+- **Money is `DECIMAL`**, time is `TIMESTAMPTZ` in UTC.
+- **Multi-write operations run in a transaction** (all-or-nothing).
+- **No secrets in the repo. No `console.log`** in app code — use the injected logger.
+- **API is versioned (`/api/v1`) and documented** (OpenAPI from Zod). Breaking change ⇒ new version.
+
+## SOLID & structure
+- Single responsibility per module/class; depend on interfaces (DI), not concretions.
+- Organize backend by **domain module** (auth, users, orders…), each owning routes/controller/service/repository/schemas/types.
+- Extend by adding new code/tables, never by breaking existing contracts.
+
+## Definition of done
+Layered cleanly · Zod-validated I/O · standard response envelope · typed errors handled centrally · awaited async · transactional + idempotent writes · tests (incl. rollback) · docs/schema updated in the same PR.
+
+When unsure, follow the relevant doc and prefer the production-grade choice.

@@ -1,0 +1,44 @@
+---
+description: Mandatory error handling and async/await discipline for all TypeScript code
+globs: **/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Error Handling & Async (Mandatory)
+
+Apply to every `.ts`/`.tsx` file. This is the #1 source of production incidents — get it right everywhere.
+
+## Async discipline
+- Any function that calls async code is `async` and **awaits** it. Never leave a floating promise.
+- Use `Promise.all` (fail-fast) or `Promise.allSettled` (collect) deliberately — never fire-and-forget.
+- Lint must pass `@typescript-eslint/no-floating-promises` and `no-misused-promises`.
+
+```typescript
+// ❌ BAD: floating promise + swallowed error
+function place(input) { orderService.create(input).catch(() => {}); }
+
+// ✅ GOOD: awaited; throws a typed error handled centrally
+async function place(req, reply) {
+  const dto = createOrderSchema.parse(req.body);
+  const order = await orderService.create(dto);
+  return reply.code(201).send(ok(order));
+}
+```
+
+## Error handling
+- **Never swallow errors.** Empty `catch {}` is forbidden. When you catch, you must recover, rethrow a typed error, or log-and-rethrow at the boundary.
+- Throw **typed domain errors** (`NotFoundError`, `ValidationError`, `ConflictError`, `InsufficientStockError`, …), not bare `throw new Error('...')`.
+- Map errors **once**, in the global handler (`setErrorHandler`) → standard envelope + correct status. Handlers throw; they don't format error responses.
+- **Never leak internals** (stack, SQL, secrets) to clients. Log server-side with the request id; return a safe message + stable `error.code`.
+- Wrap fallible ops where you can add value (translate/enrich/recover) — not blindly around everything.
+- Clean up in `finally` or rely on transaction rollback so failures never leak connections/locks/reservations.
+
+```typescript
+// ✅ catch to enrich, then rethrow typed
+try {
+  return await repo.findByIdOrThrow(id);
+} catch (cause) {
+  if (cause instanceof NotFoundError) throw cause;
+  throw new AppInternalError('Failed to load entity', { cause });
+}
+```
