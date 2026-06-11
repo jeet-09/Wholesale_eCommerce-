@@ -50,7 +50,6 @@ async function attemptRefresh(): Promise<boolean> {
       const res = await fetch(`${API_BASE}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
       });
       if (!res.ok) return false;
       const json = (await res.json()) as SuccessEnvelope<AuthResponse>;
@@ -73,7 +72,10 @@ async function attemptRefresh(): Promise<boolean> {
 }
 
 async function rawRequest(path: string, options: RequestOptions): Promise<Response> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = {};
+  // Only declare a JSON body when one is actually sent. Fastify rejects requests
+  // that advertise `application/json` but have an empty body (e.g. DELETE).
+  if (options.body !== undefined) headers['Content-Type'] = 'application/json';
   const token = useAuthStore.getState().accessToken;
   if (token) headers.Authorization = `Bearer ${token}`;
   if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;

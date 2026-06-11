@@ -5,6 +5,18 @@ import { z } from 'zod';
  * The process refuses to boot if any required variable is missing/malformed
  * (README → Secrets & Configuration; TECHNICAL-DETAILS.MD §10).
  */
+
+/**
+ * Trim whitespace and treat blank values as "unset". This makes optional vars
+ * resilient to how different loaders (dotenv vs Docker Compose `env_file`) handle
+ * empty values and inline comments — a blank/whitespace value becomes undefined.
+ */
+const blankToUndefined = (value: unknown): unknown =>
+  typeof value === 'string' && value.trim() === '' ? undefined : value;
+
+const optionalString = z.preprocess(blankToUndefined, z.string().trim().optional());
+const optionalUrl = z.preprocess(blankToUndefined, z.string().trim().url().optional());
+
 const envSchema = z.object({
   NODE_ENV: z
     .enum(['development', 'test', 'staging', 'production'])
@@ -23,7 +35,7 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRES_IN: z.string().min(1).default('30d'),
 
   COOKIE_SECRET: z.string().min(32, 'COOKIE_SECRET must be at least 32 characters'),
-  COOKIE_DOMAIN: z.string().optional(),
+  COOKIE_DOMAIN: optionalString,
 
   CORS_ORIGINS: z
     .string()
@@ -45,11 +57,11 @@ const envSchema = z.object({
     .default('true')
     .transform((value) => value === 'true'),
 
-  AWS_REGION: z.string().optional(),
-  AWS_S3_BUCKET: z.string().optional(),
-  AWS_ACCESS_KEY_ID: z.string().optional(),
-  AWS_SECRET_ACCESS_KEY: z.string().optional(),
-  S3_PUBLIC_BASE_URL: z.string().url().optional().or(z.literal('')),
+  AWS_REGION: optionalString,
+  AWS_S3_BUCKET: optionalString,
+  AWS_ACCESS_KEY_ID: optionalString,
+  AWS_SECRET_ACCESS_KEY: optionalString,
+  S3_PUBLIC_BASE_URL: optionalUrl,
 });
 
 export type Env = z.infer<typeof envSchema>;

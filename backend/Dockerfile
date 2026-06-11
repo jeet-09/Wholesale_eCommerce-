@@ -26,6 +26,10 @@ ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
+# `prisma/seed.ts` runs via tsx and imports from ../src, so the seed needs the
+# TypeScript sources + tsconfig present at runtime (the API itself uses ./dist).
+COPY --from=build /app/src ./src
+COPY --from=build /app/tsconfig.json ./tsconfig.json
 COPY package.json ./
 # Re-generate the Prisma client for the runtime platform.
 RUN npx prisma generate

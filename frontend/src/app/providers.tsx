@@ -3,7 +3,16 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
 
-export function Providers({ children }: { children: React.ReactNode }) {
+import { PortalProvider } from '@/components/portal-provider';
+import type { PortalConfig } from '@/lib/portal';
+
+export function Providers({
+  portal,
+  children,
+}: {
+  portal: PortalConfig;
+  children: React.ReactNode;
+}) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -17,5 +26,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       }),
   );
 
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <PortalProvider portal={portal}>{children}</PortalProvider>
+    </QueryClientProvider>
+  );
 }

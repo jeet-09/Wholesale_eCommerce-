@@ -4,14 +4,27 @@
 #   docker compose up --build
 #
 # Brings up:
-#   - db        : PostgreSQL 15 (with a named volume for persistence)
-#   - migrate   : one-shot — applies migrations + raw SQL constraints + seed
-#   - backend   : Fastify API (waits for migrate to finish)
-#   - frontend  : Next.js web app (waits for backend)
+#   - db                 : PostgreSQL 15 (named volume for persistence)
+#   - migrate            : one-shot — migrations + raw SQL constraints + seed
+#   - backend            : Fastify API (waits for migrate to finish)
+#   - frontend-restaurant: Restaurant portal   → http://localhost:3000
+#   - frontend-admin     : Admin portal        → http://localhost:3001
+#   - frontend-vendor    : Vendor portal       → http://localhost:3002
+#   - frontend-ops       : Operations portal   → http://localhost:3003
 #
-# Secrets/URLs you must set live in backend/.env and frontend/.env.local.
-# See SETUP.md for the full checklist.
+# All four portals run the SAME image; the role is selected per-container via the
+# runtime PORTAL env. Each port is a separate origin, so you can be logged in as
+# a different role on each one simultaneously.
+#
+# Secrets/URLs you must set live in backend/.env. See SETUP.md for the checklist.
 # =============================================================================
+
+# Shared build config for every portal (built once, reused by all four).
+x-frontend-build: &frontend-build
+  context: ./frontend
+  args:
+    # NEXT_PUBLIC_* must be baked in at build time (browser-side code).
+    NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-4000}
 
 services:
   db:
@@ -71,18 +84,57 @@ services:
         condition: service_completed_successfully
     # The image's default CMD applies migrations+constraints then starts the API.
 
-  frontend:
-    build:
-      context: ./frontend
-      args:
-        # NEXT_PUBLIC_* must be baked in at build time (browser-side code).
-        NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-4000}
-    container_name: procurement-frontend
+  # Restaurant portal (default) — build the shared image once here.
+  frontend-restaurant:
+    build: *frontend-build
+    image: procurement-frontend
+    container_name: procurement-frontend-restaurant
     restart: unless-stopped
+    environment:
+      PORTAL: restaurant
     ports:
-      - '${FRONTEND_PORT:-3000}:3000'
+      - '${RESTAURANT_PORT:-3000}:3000'
     depends_on:
       - backend
+
+  # Admin portal — reuses the image built by frontend-restaurant.
+  frontend-admin:
+    build: *frontend-build
+    image: procurement-frontend
+    container_name: procurement-frontend-admin
+    restart: unless-stopped
+    environment:
+      PORTAL: admin
+    ports:
+      - '${ADMIN_PORT:-3001}:3000'
+    depends_on:
+      - frontend-restaurant
+
+  # Vendor portal.
+  frontend-vendor:
+    build: *frontend-build
+    image: procurement-frontend
+    container_name: procurement-frontend-vendor
+    restart: unless-stopped
+    environment:
+      PORTAL: vendor
+    ports:
+      - '${VENDOR_PORT:-3002}:3000'
+    depends_on:
+      - frontend-restaurant
+
+  # Operations portal.
+  frontend-ops:
+    build: *frontend-build
+    image: procurement-frontend
+    container_name: procurement-frontend-ops
+    restart: unless-stopped
+    environment:
+      PORTAL: ops
+    ports:
+      - '${OPS_PORT:-3003}:3000'
+    depends_on:
+      - frontend-restaurant
 
 volumes:
   pgdata:

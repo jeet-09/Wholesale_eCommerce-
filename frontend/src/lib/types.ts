@@ -96,6 +96,41 @@ export interface Product {
   updatedAt: string;
 }
 
+export interface Category {
+  id: string;
+  name: string;
+  description: string | null;
+  slug: string;
+  parentCategoryId: string | null;
+  displayOrder: number;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProductPrice {
+  id: string;
+  productId: string;
+  price: string;
+  currency: string;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  isCurrent: boolean;
+  createdAt: string;
+}
+
+export interface Inventory {
+  id: string;
+  productId: string;
+  availableQuantity: string;
+  reservedQuantity: string;
+  sellableQuantity: string;
+  minimumQuantity: string;
+  maximumQuantity: string | null;
+  version: number;
+  updatedAt: string;
+}
+
 export interface CartItem {
   id: string;
   productId: string;
