@@ -1,0 +1,89 @@
+# =============================================================================
+# B2B Restaurant Procurement Platform — local/dev orchestration
+# -----------------------------------------------------------------------------
+#   docker compose up --build
+#
+# Brings up:
+#   - db        : PostgreSQL 15 (with a named volume for persistence)
+#   - migrate   : one-shot — applies migrations + raw SQL constraints + seed
+#   - backend   : Fastify API (waits for migrate to finish)
+#   - frontend  : Next.js web app (waits for backend)
+#
+# Secrets/URLs you must set live in backend/.env and frontend/.env.local.
+# See SETUP.md for the full checklist.
+# =============================================================================
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: procurement-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-procurement}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-procurement}
+      POSTGRES_DB: ${POSTGRES_DB:-procurement}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-procurement} -d ${POSTGRES_DB:-procurement}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: prepare the schema, constraints and demo data, then exit.
+  migrate:
+    build:
+      context: ./backend
+    container_name: procurement-migrate
+    env_file:
+      - ./backend/.env
+    environment:
+      # Override DATABASE_URL to point at the compose `db` service.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-procurement}:${POSTGRES_PASSWORD:-procurement}@db:5432/${POSTGRES_DB:-procurement}?schema=public
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "npx prisma migrate deploy &&
+             npx prisma db execute --file ./prisma/sql/constraints.sql --schema ./prisma/schema.prisma &&
+             npm run db:seed"
+    restart: 'no'
+
+  backend:
+    build:
+      context: ./backend
+    container_name: procurement-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-procurement}:${POSTGRES_PASSWORD:-procurement}@db:5432/${POSTGRES_DB:-procurement}?schema=public
+      HOST: 0.0.0.0
+      PORT: 4000
+    ports:
+      - '${BACKEND_PORT:-4000}:4000'
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # The image's default CMD applies migrations+constraints then starts the API.
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # NEXT_PUBLIC_* must be baked in at build time (browser-side code).
+        NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-4000}
+    container_name: procurement-frontend
+    restart: unless-stopped
+    ports:
+      - '${FRONTEND_PORT:-3000}:3000'
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+    driver: local
