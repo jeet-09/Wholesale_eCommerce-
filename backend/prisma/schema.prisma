@@ -109,14 +109,38 @@ enum ProductUnit {
   @@map("product_unit")
 }
 
+// Master-catalog lifecycle (project-working.md PRODUCT STATES).
+// Only APPROVED products are visible to restaurants.
 enum ProductStatus {
   DRAFT
-  ACTIVE
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
   INACTIVE
-  OUT_OF_STOCK
-  ARCHIVED
 
   @@map("product_status")
+}
+
+// A vendor's price + stock submission for a master-catalog product.
+// Admin reviews submissions; APPROVED offers feed the average-price calculation.
+enum VendorOfferStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  INACTIVE
+
+  @@map("vendor_offer_status")
+}
+
+// Outcome recorded by Administration after calling a vendor about an order
+// (project-working.md VENDOR CALL TRACKING).
+enum CallOutcome {
+  ACCEPTED
+  REJECTED
+  NO_RESPONSE
+  PARTIAL
+
+  @@map("call_outcome")
 }
 
 enum CartStatus {
@@ -127,14 +151,31 @@ enum CartStatus {
   @@map("cart_status")
 }
 
+// Full procurement lifecycle (project-working.md ORDER STATUS FLOW + BUSINESS FLOW).
+// PENDING_PAYMENT     order placed, 30% advance computed, awaiting payment proof
+// PAYMENT_RECEIVED    restaurant uploaded advance proof, awaiting admin verification
+// PENDING_ADMIN_REVIEW advance verified, awaiting Administration review + vendor assignment
+// VENDOR_ASSIGNED     Administration assigned a vendor (stock reserved), awaiting response
+// VENDOR_ACCEPTED     vendor accepted the order
+// PROCESSING          vendor is preparing the order
+// READY_FOR_DELIVERY  vendor marked the order ready
+// DELIVERED           vendor delivered the goods
+// COMPLETED           Administration verified completion (stock fulfilled, performance updated)
+// REJECTED            vendor rejected (re-assignable) or order rejected
+// CANCELLED           cancelled by restaurant/admin before fulfilment
 enum OrderStatus {
-  PENDING
-  ACCEPTED
+  DRAFT
+  PENDING_PAYMENT
+  PAYMENT_RECEIVED
+  PENDING_ADMIN_REVIEW
+  VENDOR_ASSIGNED
+  VENDOR_ACCEPTED
   PROCESSING
-  READY_FOR_DISPATCH
+  READY_FOR_DELIVERY
   DELIVERED
-  CANCELLED
+  COMPLETED
   REJECTED
+  CANCELLED
 
   @@map("order_status")
 }
@@ -163,12 +204,23 @@ enum OutboxStatus {
 
 enum PaymentStatus {
   PENDING
+  SUBMITTED
+  VERIFIED
+  REJECTED
   SUCCESS
   FAILED
   REFUNDED
   PARTIALLY_REFUNDED
 
   @@map("payment_status")
+}
+
+// Phase 1 collects a 30% ADVANCE up front; BALANCE is settled on delivery.
+enum PaymentType {
+  ADVANCE
+  BALANCE
+
+  @@map("payment_type")
 }
 
 enum LedgerEntryType {
@@ -499,9 +551,11 @@ model Vendor {
   createdBy String?   @map("created_by") @db.Uuid
   updatedBy String?   @map("updated_by") @db.Uuid
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  products     Product[]
-  orders       Order[]
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  offers         VendorProductOffer[]
+  assignedOrders Order[]
+  callLogs       VendorCallLog[]
+  performance    VendorPerformance?
 
   @@index([status])
   @@map("vendors")
@@ -535,17 +589,23 @@ model Category {
   @@map("categories")
 }
 
+// Master catalog product. Platform-controlled: only Admin creates/edits these
+// (project-working.md MASTER PRODUCT CATALOG). Vendors never create products;
+// they attach price + stock via VendorProductOffer. Restaurants see a SINGLE
+// listing per product regardless of how many vendors supply it.
 model Product {
-  id          String        @id @default(uuid(7)) @db.Uuid
-  vendorId    String        @map("vendor_id") @db.Uuid
-  categoryId  String        @map("category_id") @db.Uuid
-  sku         String
-  name        String
-  description String?
-  unit        ProductUnit
-  brand       String?
-  status      ProductStatus @default(DRAFT)
-  isFeatured  Boolean       @default(false) @map("is_featured")
+  id              String        @id @default(uuid(7)) @db.Uuid
+  categoryId      String        @map("category_id") @db.Uuid
+  sku             String
+  name            String
+  description     String?
+  unit            ProductUnit
+  brand           String?
+  status          ProductStatus @default(DRAFT)
+  isFeatured      Boolean       @default(false) @map("is_featured")
+  // Transportation markup added on top of the average vendor price before the
+  // admin sets the final selling price. Defaults to the platform setting (20%).
+  transportPercent Decimal      @default(20) @map("transport_percent") @db.Decimal(5, 2)
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
@@ -553,19 +613,50 @@ model Product {
   createdBy String?   @map("created_by") @db.Uuid
   updatedBy String?   @map("updated_by") @db.Uuid
 
-  vendor    Vendor         @relation(fields: [vendorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  category  Category       @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  images    ProductImage[]
-  prices    ProductPrice[]
-  inventory Inventory?
-  cartItems CartItem[]
+  category   Category             @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  images     ProductImage[]
+  prices     ProductPrice[]
+  offers     VendorProductOffer[]
+  cartItems  CartItem[]
   orderItems OrderItem[]
 
-  @@index([vendorId])
   @@index([categoryId])
   @@index([status])
   @@index([sku])
   @@map("products")
+}
+
+// A vendor's price + available stock for a master-catalog product
+// (project-working.md PRODUCT PRICING FLOW + VENDOR Product Pricing).
+//   * vendorPrice feeds the platform average (APPROVED offers only)
+//   * availableQuantity/reservedQuantity track the vendor's sellable stock
+//   * stock is reserved when Administration assigns this vendor to an order
+// `sellable = availableQuantity - reservedQuantity` (DATABASE.md inventory rule).
+model VendorProductOffer {
+  id                String            @id @default(uuid(7)) @db.Uuid
+  vendorId          String            @map("vendor_id") @db.Uuid
+  productId         String            @map("product_id") @db.Uuid
+  vendorPrice       Decimal           @map("vendor_price") @db.Decimal(14, 2)
+  currency          String            @default("INR") @db.Char(3)
+  availableQuantity Decimal           @default(0) @map("available_quantity") @db.Decimal(14, 3)
+  reservedQuantity  Decimal           @default(0) @map("reserved_quantity") @db.Decimal(14, 3)
+  status            VendorOfferStatus @default(PENDING)
+  version           Int               @default(0)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  vendor  Vendor  @relation(fields: [vendorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([vendorId])
+  @@index([productId])
+  @@index([status])
+  @@index([productId, status])
+  @@map("vendor_product_offers")
 }
 
 model ProductImage {
@@ -586,17 +677,23 @@ model ProductImage {
   @@map("product_images")
 }
 
-// Append-only price history (Rule 6). Never UPDATE/DELETE except closing a row
-// (effective_to + is_current=false) inside the price-change transaction.
+// Append-only SELLING-price history (Rule 6) — the final price shown to
+// restaurants, controlled by Admin. Each row records how it was derived:
+//   price = averageVendorPrice * (1 + transportPercent/100), unless isOverride.
+// Never UPDATE/DELETE except closing a row (effective_to + is_current=false)
+// inside the price-change transaction.
 model ProductPrice {
-  id            String    @id @default(uuid(7)) @db.Uuid
-  productId     String    @map("product_id") @db.Uuid
-  price         Decimal   @db.Decimal(14, 2)
-  currency      String    @default("INR") @db.Char(3)
-  effectiveFrom DateTime  @map("effective_from") @db.Timestamptz
-  effectiveTo   DateTime? @map("effective_to") @db.Timestamptz
-  isCurrent     Boolean   @default(true) @map("is_current")
-  createdBy     String?   @map("created_by") @db.Uuid
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  productId          String    @map("product_id") @db.Uuid
+  price              Decimal   @db.Decimal(14, 2)
+  currency           String    @default("INR") @db.Char(3)
+  averageVendorPrice Decimal?  @map("average_vendor_price") @db.Decimal(14, 2)
+  transportPercent   Decimal?  @map("transport_percent") @db.Decimal(5, 2)
+  isOverride         Boolean   @default(false) @map("is_override")
+  effectiveFrom      DateTime  @map("effective_from") @db.Timestamptz
+  effectiveTo        DateTime? @map("effective_to") @db.Timestamptz
+  isCurrent          Boolean   @default(true) @map("is_current")
+  createdBy          String?   @map("created_by") @db.Uuid
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
@@ -607,26 +704,11 @@ model ProductPrice {
 }
 
 // =============================================================================
-// INVENTORY DOMAIN — sellable = available - reserved (DATABASE.md formula).
+// INVENTORY — stock lives on VendorProductOffer (availableQuantity /
+// reservedQuantity / version). There is no platform-level inventory because a
+// master-catalog product is supplied by many vendors; the assigned vendor's
+// offer is the unit of stock. See the VendorProductOffer model above.
 // =============================================================================
-
-model Inventory {
-  id                String  @id @default(uuid(7)) @db.Uuid
-  productId         String  @unique @map("product_id") @db.Uuid
-  availableQuantity Decimal @default(0) @map("available_quantity") @db.Decimal(14, 3)
-  reservedQuantity  Decimal @default(0) @map("reserved_quantity") @db.Decimal(14, 3)
-  minimumQuantity   Decimal @default(0) @map("minimum_quantity") @db.Decimal(14, 3)
-  maximumQuantity   Decimal? @map("maximum_quantity") @db.Decimal(14, 3)
-  version           Int     @default(0)
-
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
-  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
-
-  product Product @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-
-  @@map("inventories")
-}
 
 // =============================================================================
 // CART DOMAIN
@@ -674,40 +756,57 @@ model CartItem {
 // total = subtotal - discount + gst + delivery
 // =============================================================================
 
+// An order is placed by a restaurant WITHOUT a vendor; Administration assigns
+// the vendor later (project-working.md BUSINESS FLOW). `assignedVendorId` is
+// therefore nullable until step 8. Money: total = subtotal - discount + gst +
+// delivery; advanceAmount = total * advancePercent/100; remaining = total - advance.
 model Order {
   id              String      @id @default(uuid(7)) @db.Uuid
   orderNumber     String      @unique @map("order_number")
   restaurantId    String      @map("restaurant_id") @db.Uuid
-  vendorId        String      @map("vendor_id") @db.Uuid
-  status          OrderStatus @default(PENDING)
+  assignedVendorId String?    @map("assigned_vendor_id") @db.Uuid
+  assignedBy      String?     @map("assigned_by") @db.Uuid
+  status          OrderStatus @default(PENDING_PAYMENT)
   currency        String      @default("INR") @db.Char(3)
   subtotal        Decimal     @db.Decimal(14, 2)
   discountAmount  Decimal     @default(0) @map("discount_amount") @db.Decimal(14, 2)
   gstAmount       Decimal     @default(0) @map("gst_amount") @db.Decimal(14, 2)
   deliveryCharges Decimal     @default(0) @map("delivery_charges") @db.Decimal(14, 2)
   totalAmount     Decimal     @map("total_amount") @db.Decimal(14, 2)
-  placedAt        DateTime?   @map("placed_at") @db.Timestamptz
-  acceptedAt      DateTime?   @map("accepted_at") @db.Timestamptz
-  deliveredAt     DateTime?   @map("delivered_at") @db.Timestamptz
-  cancelledAt     DateTime?   @map("cancelled_at") @db.Timestamptz
+  advancePercent  Decimal     @default(30) @map("advance_percent") @db.Decimal(5, 2)
+  advanceAmount   Decimal     @map("advance_amount") @db.Decimal(14, 2)
+  remainingAmount Decimal     @map("remaining_amount") @db.Decimal(14, 2)
+
+  placedAt          DateTime? @map("placed_at") @db.Timestamptz
+  paymentSubmittedAt DateTime? @map("payment_submitted_at") @db.Timestamptz
+  paymentVerifiedAt DateTime? @map("payment_verified_at") @db.Timestamptz
+  reviewedAt        DateTime? @map("reviewed_at") @db.Timestamptz
+  assignedAt        DateTime? @map("assigned_at") @db.Timestamptz
+  acceptedAt        DateTime? @map("accepted_at") @db.Timestamptz
+  readyAt           DateTime? @map("ready_at") @db.Timestamptz
+  deliveredAt       DateTime? @map("delivered_at") @db.Timestamptz
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz
+  rejectedAt        DateTime? @map("rejected_at") @db.Timestamptz
+  cancelledAt       DateTime? @map("cancelled_at") @db.Timestamptz
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
   createdBy String?   @map("created_by") @db.Uuid
 
-  restaurant    Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  vendor        Vendor              @relation(fields: [vendorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  items         OrderItem[]
-  statusHistory OrderStatusHistory[]
-  notes         OrderNote[]
-  payments      Payment[]
+  restaurant     Restaurant           @relation(fields: [restaurantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assignedVendor Vendor?              @relation(fields: [assignedVendorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  items          OrderItem[]
+  statusHistory  OrderStatusHistory[]
+  notes          OrderNote[]
+  payments       Payment[]
+  callLogs       VendorCallLog[]
 
   @@index([restaurantId])
-  @@index([vendorId])
+  @@index([assignedVendorId])
   @@index([status])
   @@index([createdAt])
-  @@index([vendorId, status])
+  @@index([assignedVendorId, status])
   @@index([restaurantId, status])
   @@map("orders")
 }
@@ -810,7 +909,7 @@ model OutboxEvent {
 }
 
 // =============================================================================
-// PAYMENT DOMAIN (Phase 3 — designed now)
+// PAYMENT DOMAIN — Phase 1: 30% advance via PhonePe QR + manual verification.
 // =============================================================================
 
 model PaymentMethod {
@@ -828,26 +927,85 @@ model PaymentMethod {
   @@map("payment_methods")
 }
 
+// A payment record. In Phase 1 the restaurant uploads a screenshot (proofUrl)
+// of a PhonePe/UPI transfer for the 30% ADVANCE; Administration verifies it
+// manually (status SUBMITTED -> VERIFIED/REJECTED). Designed to extend to an
+// online gateway later without schema rewrites.
 model Payment {
   id                   String        @id @default(uuid(7)) @db.Uuid
   orderId              String        @map("order_id") @db.Uuid
-  paymentMethodId      String        @map("payment_method_id") @db.Uuid
+  paymentMethodId      String?       @map("payment_method_id") @db.Uuid
+  paymentType          PaymentType   @default(ADVANCE) @map("payment_type")
   amount               Decimal       @db.Decimal(14, 2)
   currency             String        @default("INR") @db.Char(3)
-  status               PaymentStatus @default(PENDING)
+  status               PaymentStatus @default(SUBMITTED)
+  proofUrl             String?       @map("proof_url")
   transactionReference String?       @map("transaction_reference")
+  remarks              String?
+  submittedBy          String?       @map("submitted_by") @db.Uuid
+  verifiedBy           String?       @map("verified_by") @db.Uuid
+  verifiedAt           DateTime?     @map("verified_at") @db.Timestamptz
   paidAt               DateTime?     @map("paid_at") @db.Timestamptz
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
 
-  order         Order         @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  paymentMethod PaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  order         Order          @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([orderId])
   @@index([status])
   @@map("payments")
+}
+
+// =============================================================================
+// VENDOR OPERATIONS DOMAIN — call tracking & performance
+// =============================================================================
+
+// Every time Administration calls a vendor about an assigned order, the outcome
+// is recorded here (project-working.md VENDOR CALL TRACKING). Append-only.
+model VendorCallLog {
+  id       String      @id @default(uuid(7)) @db.Uuid
+  orderId  String      @map("order_id") @db.Uuid
+  vendorId String      @map("vendor_id") @db.Uuid
+  calledBy String?     @map("called_by") @db.Uuid
+  outcome  CallOutcome
+  remarks  String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([orderId])
+  @@index([vendorId])
+  @@map("vendor_call_logs")
+}
+
+// Rolling counters per vendor (project-working.md VENDOR PERFORMANCE FORMULA),
+// updated transactionally as orders progress. Derived rates (success %,
+// acceptance %, avg fulfilment time, avg rating) are computed from these.
+// `version` guards concurrent updates with optimistic locking.
+model VendorPerformance {
+  id                     String @id @default(uuid(7)) @db.Uuid
+  vendorId               String @unique @map("vendor_id") @db.Uuid
+  totalAssigned          Int    @default(0) @map("total_assigned")
+  totalAccepted          Int    @default(0) @map("total_accepted")
+  totalRejected          Int    @default(0) @map("total_rejected")
+  totalCompleted         Int    @default(0) @map("total_completed")
+  totalNoResponse        Int    @default(0) @map("total_no_response")
+  fulfilmentMinutesTotal Int    @default(0) @map("fulfilment_minutes_total")
+  ratingSum              Int    @default(0) @map("rating_sum")
+  ratingCount            Int    @default(0) @map("rating_count")
+  version                Int    @default(0)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@map("vendor_performance")
 }
 
 // =============================================================================

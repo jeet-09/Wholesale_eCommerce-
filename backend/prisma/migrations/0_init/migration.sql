@@ -32,13 +32,19 @@ CREATE TYPE "category_status" AS ENUM ('ACTIVE', 'INACTIVE');
 CREATE TYPE "product_unit" AS ENUM ('KG', 'GRAM', 'LITER', 'ML', 'PIECE', 'BOX', 'PACKET');
 
 -- CreateEnum
-CREATE TYPE "product_status" AS ENUM ('DRAFT', 'ACTIVE', 'INACTIVE', 'OUT_OF_STOCK', 'ARCHIVED');
+CREATE TYPE "product_status" AS ENUM ('DRAFT', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'INACTIVE');
+
+-- CreateEnum
+CREATE TYPE "vendor_offer_status" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'INACTIVE');
+
+-- CreateEnum
+CREATE TYPE "call_outcome" AS ENUM ('ACCEPTED', 'REJECTED', 'NO_RESPONSE', 'PARTIAL');
 
 -- CreateEnum
 CREATE TYPE "cart_status" AS ENUM ('ACTIVE', 'CHECKED_OUT', 'ABANDONED');
 
 -- CreateEnum
-CREATE TYPE "order_status" AS ENUM ('PENDING', 'ACCEPTED', 'PROCESSING', 'READY_FOR_DISPATCH', 'DELIVERED', 'CANCELLED', 'REJECTED');
+CREATE TYPE "order_status" AS ENUM ('DRAFT', 'PENDING_PAYMENT', 'PAYMENT_RECEIVED', 'PENDING_ADMIN_REVIEW', 'VENDOR_ASSIGNED', 'VENDOR_ACCEPTED', 'PROCESSING', 'READY_FOR_DELIVERY', 'DELIVERED', 'COMPLETED', 'REJECTED', 'CANCELLED');
 
 -- CreateEnum
 CREATE TYPE "note_visibility" AS ENUM ('INTERNAL', 'SHARED');
@@ -50,7 +56,10 @@ CREATE TYPE "idempotency_status" AS ENUM ('IN_PROGRESS', 'COMPLETED');
 CREATE TYPE "outbox_status" AS ENUM ('PENDING', 'PROCESSED', 'FAILED');
 
 -- CreateEnum
-CREATE TYPE "payment_status" AS ENUM ('PENDING', 'SUCCESS', 'FAILED', 'REFUNDED', 'PARTIALLY_REFUNDED');
+CREATE TYPE "payment_status" AS ENUM ('PENDING', 'SUBMITTED', 'VERIFIED', 'REJECTED', 'SUCCESS', 'FAILED', 'REFUNDED', 'PARTIALLY_REFUNDED');
+
+-- CreateEnum
+CREATE TYPE "payment_type" AS ENUM ('ADVANCE', 'BALANCE');
 
 -- CreateEnum
 CREATE TYPE "ledger_entry_type" AS ENUM ('DEBIT', 'CREDIT');
@@ -291,7 +300,6 @@ CREATE TABLE "categories" (
 -- CreateTable
 CREATE TABLE "products" (
     "id" UUID NOT NULL,
-    "vendor_id" UUID NOT NULL,
     "category_id" UUID NOT NULL,
     "sku" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -300,6 +308,7 @@ CREATE TABLE "products" (
     "brand" TEXT,
     "status" "product_status" NOT NULL DEFAULT 'DRAFT',
     "is_featured" BOOLEAN NOT NULL DEFAULT false,
+    "transport_percent" DECIMAL(5,2) NOT NULL DEFAULT 20,
     "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ NOT NULL,
     "deleted_at" TIMESTAMPTZ,
@@ -307,6 +316,26 @@ CREATE TABLE "products" (
     "updated_by" UUID,
 
     CONSTRAINT "products_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "vendor_product_offers" (
+    "id" UUID NOT NULL,
+    "vendor_id" UUID NOT NULL,
+    "product_id" UUID NOT NULL,
+    "vendor_price" DECIMAL(14,2) NOT NULL,
+    "currency" CHAR(3) NOT NULL DEFAULT 'INR',
+    "available_quantity" DECIMAL(14,3) NOT NULL DEFAULT 0,
+    "reserved_quantity" DECIMAL(14,3) NOT NULL DEFAULT 0,
+    "status" "vendor_offer_status" NOT NULL DEFAULT 'PENDING',
+    "version" INTEGER NOT NULL DEFAULT 0,
+    "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ NOT NULL,
+    "deleted_at" TIMESTAMPTZ,
+    "created_by" UUID,
+    "updated_by" UUID,
+
+    CONSTRAINT "vendor_product_offers_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -330,6 +359,9 @@ CREATE TABLE "product_prices" (
     "product_id" UUID NOT NULL,
     "price" DECIMAL(14,2) NOT NULL,
     "currency" CHAR(3) NOT NULL DEFAULT 'INR',
+    "average_vendor_price" DECIMAL(14,2),
+    "transport_percent" DECIMAL(5,2),
+    "is_override" BOOLEAN NOT NULL DEFAULT false,
     "effective_from" TIMESTAMPTZ NOT NULL,
     "effective_to" TIMESTAMPTZ,
     "is_current" BOOLEAN NOT NULL DEFAULT true,
@@ -337,22 +369,6 @@ CREATE TABLE "product_prices" (
     "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "product_prices_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "inventories" (
-    "id" UUID NOT NULL,
-    "product_id" UUID NOT NULL,
-    "available_quantity" DECIMAL(14,3) NOT NULL DEFAULT 0,
-    "reserved_quantity" DECIMAL(14,3) NOT NULL DEFAULT 0,
-    "minimum_quantity" DECIMAL(14,3) NOT NULL DEFAULT 0,
-    "maximum_quantity" DECIMAL(14,3),
-    "version" INTEGER NOT NULL DEFAULT 0,
-    "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMPTZ NOT NULL,
-    "deleted_at" TIMESTAMPTZ,
-
-    CONSTRAINT "inventories_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -387,17 +403,28 @@ CREATE TABLE "orders" (
     "id" UUID NOT NULL,
     "order_number" TEXT NOT NULL,
     "restaurant_id" UUID NOT NULL,
-    "vendor_id" UUID NOT NULL,
-    "status" "order_status" NOT NULL DEFAULT 'PENDING',
+    "assigned_vendor_id" UUID,
+    "assigned_by" UUID,
+    "status" "order_status" NOT NULL DEFAULT 'PENDING_PAYMENT',
     "currency" CHAR(3) NOT NULL DEFAULT 'INR',
     "subtotal" DECIMAL(14,2) NOT NULL,
     "discount_amount" DECIMAL(14,2) NOT NULL DEFAULT 0,
     "gst_amount" DECIMAL(14,2) NOT NULL DEFAULT 0,
     "delivery_charges" DECIMAL(14,2) NOT NULL DEFAULT 0,
     "total_amount" DECIMAL(14,2) NOT NULL,
+    "advance_percent" DECIMAL(5,2) NOT NULL DEFAULT 30,
+    "advance_amount" DECIMAL(14,2) NOT NULL,
+    "remaining_amount" DECIMAL(14,2) NOT NULL,
     "placed_at" TIMESTAMPTZ,
+    "payment_submitted_at" TIMESTAMPTZ,
+    "payment_verified_at" TIMESTAMPTZ,
+    "reviewed_at" TIMESTAMPTZ,
+    "assigned_at" TIMESTAMPTZ,
     "accepted_at" TIMESTAMPTZ,
+    "ready_at" TIMESTAMPTZ,
     "delivered_at" TIMESTAMPTZ,
+    "completed_at" TIMESTAMPTZ,
+    "rejected_at" TIMESTAMPTZ,
     "cancelled_at" TIMESTAMPTZ,
     "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ NOT NULL,
@@ -499,17 +526,55 @@ CREATE TABLE "payment_methods" (
 CREATE TABLE "payments" (
     "id" UUID NOT NULL,
     "order_id" UUID NOT NULL,
-    "payment_method_id" UUID NOT NULL,
+    "payment_method_id" UUID,
+    "payment_type" "payment_type" NOT NULL DEFAULT 'ADVANCE',
     "amount" DECIMAL(14,2) NOT NULL,
     "currency" CHAR(3) NOT NULL DEFAULT 'INR',
-    "status" "payment_status" NOT NULL DEFAULT 'PENDING',
+    "status" "payment_status" NOT NULL DEFAULT 'SUBMITTED',
+    "proof_url" TEXT,
     "transaction_reference" TEXT,
+    "remarks" TEXT,
+    "submitted_by" UUID,
+    "verified_by" UUID,
+    "verified_at" TIMESTAMPTZ,
     "paid_at" TIMESTAMPTZ,
     "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ NOT NULL,
     "deleted_at" TIMESTAMPTZ,
 
     CONSTRAINT "payments_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "vendor_call_logs" (
+    "id" UUID NOT NULL,
+    "order_id" UUID NOT NULL,
+    "vendor_id" UUID NOT NULL,
+    "called_by" UUID,
+    "outcome" "call_outcome" NOT NULL,
+    "remarks" TEXT,
+    "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "vendor_call_logs_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "vendor_performance" (
+    "id" UUID NOT NULL,
+    "vendor_id" UUID NOT NULL,
+    "total_assigned" INTEGER NOT NULL DEFAULT 0,
+    "total_accepted" INTEGER NOT NULL DEFAULT 0,
+    "total_rejected" INTEGER NOT NULL DEFAULT 0,
+    "total_completed" INTEGER NOT NULL DEFAULT 0,
+    "total_no_response" INTEGER NOT NULL DEFAULT 0,
+    "fulfilment_minutes_total" INTEGER NOT NULL DEFAULT 0,
+    "rating_sum" INTEGER NOT NULL DEFAULT 0,
+    "rating_count" INTEGER NOT NULL DEFAULT 0,
+    "version" INTEGER NOT NULL DEFAULT 0,
+    "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ NOT NULL,
+
+    CONSTRAINT "vendor_performance_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -695,9 +760,6 @@ CREATE INDEX "categories_parent_category_id_idx" ON "categories"("parent_categor
 CREATE INDEX "categories_status_idx" ON "categories"("status");
 
 -- CreateIndex
-CREATE INDEX "products_vendor_id_idx" ON "products"("vendor_id");
-
--- CreateIndex
 CREATE INDEX "products_category_id_idx" ON "products"("category_id");
 
 -- CreateIndex
@@ -707,13 +769,22 @@ CREATE INDEX "products_status_idx" ON "products"("status");
 CREATE INDEX "products_sku_idx" ON "products"("sku");
 
 -- CreateIndex
+CREATE INDEX "vendor_product_offers_vendor_id_idx" ON "vendor_product_offers"("vendor_id");
+
+-- CreateIndex
+CREATE INDEX "vendor_product_offers_product_id_idx" ON "vendor_product_offers"("product_id");
+
+-- CreateIndex
+CREATE INDEX "vendor_product_offers_status_idx" ON "vendor_product_offers"("status");
+
+-- CreateIndex
+CREATE INDEX "vendor_product_offers_product_id_status_idx" ON "vendor_product_offers"("product_id", "status");
+
+-- CreateIndex
 CREATE INDEX "product_images_product_id_idx" ON "product_images"("product_id");
 
 -- CreateIndex
 CREATE INDEX "product_prices_product_id_idx" ON "product_prices"("product_id");
-
--- CreateIndex
-CREATE UNIQUE INDEX "inventories_product_id_key" ON "inventories"("product_id");
 
 -- CreateIndex
 CREATE INDEX "carts_restaurant_id_idx" ON "carts"("restaurant_id");
@@ -734,7 +805,7 @@ CREATE UNIQUE INDEX "orders_order_number_key" ON "orders"("order_number");
 CREATE INDEX "orders_restaurant_id_idx" ON "orders"("restaurant_id");
 
 -- CreateIndex
-CREATE INDEX "orders_vendor_id_idx" ON "orders"("vendor_id");
+CREATE INDEX "orders_assigned_vendor_id_idx" ON "orders"("assigned_vendor_id");
 
 -- CreateIndex
 CREATE INDEX "orders_status_idx" ON "orders"("status");
@@ -743,7 +814,7 @@ CREATE INDEX "orders_status_idx" ON "orders"("status");
 CREATE INDEX "orders_created_at_idx" ON "orders"("created_at");
 
 -- CreateIndex
-CREATE INDEX "orders_vendor_id_status_idx" ON "orders"("vendor_id", "status");
+CREATE INDEX "orders_assigned_vendor_id_status_idx" ON "orders"("assigned_vendor_id", "status");
 
 -- CreateIndex
 CREATE INDEX "orders_restaurant_id_status_idx" ON "orders"("restaurant_id", "status");
@@ -780,6 +851,15 @@ CREATE INDEX "payments_order_id_idx" ON "payments"("order_id");
 
 -- CreateIndex
 CREATE INDEX "payments_status_idx" ON "payments"("status");
+
+-- CreateIndex
+CREATE INDEX "vendor_call_logs_order_id_idx" ON "vendor_call_logs"("order_id");
+
+-- CreateIndex
+CREATE INDEX "vendor_call_logs_vendor_id_idx" ON "vendor_call_logs"("vendor_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "vendor_performance_vendor_id_key" ON "vendor_performance"("vendor_id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "ledgers_organization_id_key" ON "ledgers"("organization_id");
@@ -854,19 +934,19 @@ ALTER TABLE "vendors" ADD CONSTRAINT "vendors_organization_id_fkey" FOREIGN KEY 
 ALTER TABLE "categories" ADD CONSTRAINT "categories_parent_category_id_fkey" FOREIGN KEY ("parent_category_id") REFERENCES "categories"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "products" ADD CONSTRAINT "products_vendor_id_fkey" FOREIGN KEY ("vendor_id") REFERENCES "vendors"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "products" ADD CONSTRAINT "products_category_id_fkey" FOREIGN KEY ("category_id") REFERENCES "categories"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "products" ADD CONSTRAINT "products_category_id_fkey" FOREIGN KEY ("category_id") REFERENCES "categories"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "vendor_product_offers" ADD CONSTRAINT "vendor_product_offers_vendor_id_fkey" FOREIGN KEY ("vendor_id") REFERENCES "vendors"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "vendor_product_offers" ADD CONSTRAINT "vendor_product_offers_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "product_images" ADD CONSTRAINT "product_images_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "product_prices" ADD CONSTRAINT "product_prices_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "inventories" ADD CONSTRAINT "inventories_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "carts" ADD CONSTRAINT "carts_restaurant_id_fkey" FOREIGN KEY ("restaurant_id") REFERENCES "restaurants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -881,7 +961,7 @@ ALTER TABLE "cart_items" ADD CONSTRAINT "cart_items_product_id_fkey" FOREIGN KEY
 ALTER TABLE "orders" ADD CONSTRAINT "orders_restaurant_id_fkey" FOREIGN KEY ("restaurant_id") REFERENCES "restaurants"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "orders" ADD CONSTRAINT "orders_vendor_id_fkey" FOREIGN KEY ("vendor_id") REFERENCES "vendors"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "orders" ADD CONSTRAINT "orders_assigned_vendor_id_fkey" FOREIGN KEY ("assigned_vendor_id") REFERENCES "vendors"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "order_items" ADD CONSTRAINT "order_items_order_id_fkey" FOREIGN KEY ("order_id") REFERENCES "orders"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -903,6 +983,15 @@ ALTER TABLE "payments" ADD CONSTRAINT "payments_order_id_fkey" FOREIGN KEY ("ord
 
 -- AddForeignKey
 ALTER TABLE "payments" ADD CONSTRAINT "payments_payment_method_id_fkey" FOREIGN KEY ("payment_method_id") REFERENCES "payment_methods"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "vendor_call_logs" ADD CONSTRAINT "vendor_call_logs_order_id_fkey" FOREIGN KEY ("order_id") REFERENCES "orders"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "vendor_call_logs" ADD CONSTRAINT "vendor_call_logs_vendor_id_fkey" FOREIGN KEY ("vendor_id") REFERENCES "vendors"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "vendor_performance" ADD CONSTRAINT "vendor_performance_vendor_id_fkey" FOREIGN KEY ("vendor_id") REFERENCES "vendors"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "ledgers" ADD CONSTRAINT "ledgers_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

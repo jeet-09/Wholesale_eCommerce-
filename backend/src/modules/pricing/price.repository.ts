@@ -10,6 +10,9 @@ interface CreatePriceInput {
   productId: string;
   price: Prisma.Decimal | number | string;
   currency?: string;
+  averageVendorPrice?: Prisma.Decimal | number | string | null;
+  transportPercent?: Prisma.Decimal | number | string | null;
+  isOverride?: boolean;
   effectiveFrom?: Date;
   createdBy?: string | null;
 }
@@ -43,6 +46,9 @@ export class ProductPriceRepository extends BaseRepository {
         productId: input.productId,
         price: input.price,
         currency: input.currency ?? DEFAULT_CURRENCY,
+        averageVendorPrice: input.averageVendorPrice ?? null,
+        transportPercent: input.transportPercent ?? null,
+        isOverride: input.isOverride ?? false,
         effectiveFrom: input.effectiveFrom ?? new Date(),
         isCurrent: true,
         createdBy: input.createdBy ?? null,

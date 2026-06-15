@@ -3,7 +3,8 @@ import type { Prisma } from '@prisma/client';
 export const orderInclude = {
   items: { orderBy: { createdAt: 'asc' as const } },
   statusHistory: { orderBy: { createdAt: 'asc' as const } },
-  vendor: { select: { id: true, vendorName: true } },
+  payments: { where: { deletedAt: null }, orderBy: { createdAt: 'desc' as const } },
+  assignedVendor: { select: { id: true, vendorName: true } },
   restaurant: { select: { id: true, restaurantName: true } },
 } satisfies Prisma.OrderInclude;
 
@@ -29,13 +30,26 @@ export interface OrderStatusHistoryDto {
   createdAt: string;
 }
 
+export interface OrderPaymentDto {
+  id: string;
+  paymentType: string;
+  amount: string;
+  currency: string;
+  status: string;
+  proofUrl: string | null;
+  transactionReference: string | null;
+  remarks: string | null;
+  verifiedAt: string | null;
+  createdAt: string;
+}
+
 export interface OrderDto {
   id: string;
   orderNumber: string;
   restaurantId: string;
   restaurantName: string | null;
-  vendorId: string;
-  vendorName: string | null;
+  assignedVendorId: string | null;
+  assignedVendorName: string | null;
   status: string;
   currency: string;
   subtotal: string;
@@ -43,12 +57,23 @@ export interface OrderDto {
   gstAmount: string;
   deliveryCharges: string;
   totalAmount: string;
+  advancePercent: string;
+  advanceAmount: string;
+  remainingAmount: string;
   placedAt: string | null;
+  paymentSubmittedAt: string | null;
+  paymentVerifiedAt: string | null;
+  reviewedAt: string | null;
+  assignedAt: string | null;
   acceptedAt: string | null;
+  readyAt: string | null;
   deliveredAt: string | null;
+  completedAt: string | null;
+  rejectedAt: string | null;
   cancelledAt: string | null;
   items: OrderItemDto[];
   statusHistory: OrderStatusHistoryDto[];
+  payments: OrderPaymentDto[];
   createdAt: string;
   updatedAt: string;
 }

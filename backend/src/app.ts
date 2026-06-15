@@ -29,9 +29,13 @@ import { registerRestaurantRoutes } from './modules/restaurants/restaurant.route
 import { registerCategoryRoutes } from './modules/categories/category.routes';
 import { registerProductRoutes } from './modules/products/product.routes';
 import { registerPricingRoutes } from './modules/pricing/price.routes';
-import { registerInventoryRoutes } from './modules/inventory/inventory.routes';
+import { registerOfferRoutes } from './modules/vendor-offers/offer.routes';
 import { registerCartRoutes } from './modules/cart/cart.routes';
 import { registerOrderRoutes } from './modules/orders/order.routes';
+import { registerPaymentRoutes } from './modules/payments/payment.routes';
+import { registerPerformanceRoutes } from './modules/vendor-performance/performance.routes';
+import { registerCallRoutes } from './modules/vendor-calls/call.routes';
+import { registerAnalyticsRoutes } from './modules/analytics/analytics.routes';
 import { registerNotificationRoutes } from './modules/notifications/notification.routes';
 import { registerAuditRoutes } from './modules/audit/audit.routes';
 
@@ -104,9 +108,13 @@ export async function buildApp(deps: BuildAppDeps): Promise<FastifyInstance> {
       registerCategoryRoutes(api, c.categories);
       registerProductRoutes(api, c.products);
       registerPricingRoutes(api, c.pricing);
-      registerInventoryRoutes(api, c.inventory);
+      registerOfferRoutes(api, c.offers);
       registerCartRoutes(api, c.cart);
       registerOrderRoutes(api, c.orders);
+      registerPaymentRoutes(api, c.payments);
+      registerPerformanceRoutes(api, c.performance);
+      registerCallRoutes(api, c.calls);
+      registerAnalyticsRoutes(api, c.analytics);
       registerNotificationRoutes(api, c.notifications);
       registerAuditRoutes(api, c.audit);
     },

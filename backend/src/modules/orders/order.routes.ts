@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { z } from 'zod';
 
 import { PERMISSIONS } from '../../common/permissions';
 import {
@@ -12,17 +11,25 @@ import {
 import type { UuidParam } from '../../common/schemas';
 import type { OrderController } from './order.controller';
 import {
+  assignVendorSchema,
   cancelOrderSchema,
+  completeOrderSchema,
   listOrdersQuerySchema,
   orderResponseSchema,
   placeOrderSchema,
-  updateOrderStatusSchema,
+  rejectOrderSchema,
+  updateFulfilmentSchema,
+  vendorRespondSchema,
 } from './order.schemas';
 import type {
+  AssignVendorInput,
   CancelOrderInput,
+  CompleteOrderInput,
   ListOrdersQueryInput,
   PlaceOrderInput,
-  UpdateOrderStatusInput,
+  RejectOrderInput,
+  UpdateFulfilmentInput,
+  VendorRespondInput,
 } from './order.schemas';
 
 export function registerOrderRoutes(app: FastifyInstance, controller: OrderController): void {
@@ -33,15 +40,12 @@ export function registerOrderRoutes(app: FastifyInstance, controller: OrderContr
     {
       schema: {
         tags: ['orders'],
-        summary: 'Place orders from the active cart (one order per vendor)',
+        summary: 'Place an order from the active cart',
         description:
-          'Requires an `Idempotency-Key` header. Re-reads prices, validates and reserves stock, and checks out the cart in a single transaction.',
+          'Requires an `Idempotency-Key` header. Snapshots current selling prices, computes totals + the 30% advance, and creates the order in PENDING_PAYMENT. No vendor is assigned yet.',
         security: [{ bearerAuth: [] }],
         body: placeOrderSchema,
-        response: {
-          201: successEnvelope(z.array(orderResponseSchema)),
-          ...commonErrorResponses,
-        },
+        response: { 201: successEnvelope(orderResponseSchema), ...commonErrorResponses },
       },
       preHandler: [app.authenticate, app.authorize(PERMISSIONS.ORDER_CREATE), app.idempotent()],
     },
@@ -78,20 +82,87 @@ export function registerOrderRoutes(app: FastifyInstance, controller: OrderContr
     controller.getById,
   );
 
-  router.patch<{ Params: UuidParam; Body: UpdateOrderStatusInput }>(
-    '/orders/:id/status',
+  router.post<{ Params: UuidParam; Body: AssignVendorInput }>(
+    '/orders/:id/assign',
     {
       schema: {
         tags: ['orders'],
-        summary: 'Update order status (vendor / operations)',
+        summary: 'Assign a vendor to a reviewed order (Administration)',
+        description:
+          'Reserves the chosen vendor offer stock and moves the order to VENDOR_ASSIGNED.',
         security: [{ bearerAuth: [] }],
         params: uuidParamSchema,
-        body: updateOrderStatusSchema,
+        body: assignVendorSchema,
+        response: { 200: successEnvelope(orderResponseSchema), ...commonErrorResponses },
+      },
+      preHandler: [app.authenticate, app.authorize(PERMISSIONS.ORDER_ASSIGN)],
+    },
+    controller.assignVendor,
+  );
+
+  router.post<{ Params: UuidParam; Body: VendorRespondInput }>(
+    '/orders/:id/respond',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: 'Vendor accepts or rejects an assignment',
+        security: [{ bearerAuth: [] }],
+        params: uuidParamSchema,
+        body: vendorRespondSchema,
         response: { 200: successEnvelope(orderResponseSchema), ...commonErrorResponses },
       },
       preHandler: [app.authenticate, app.authorize(PERMISSIONS.ORDER_UPDATE)],
     },
-    controller.updateStatus,
+    controller.respond,
+  );
+
+  router.patch<{ Params: UuidParam; Body: UpdateFulfilmentInput }>(
+    '/orders/:id/fulfilment',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: 'Vendor advances fulfilment (processing → ready → delivered)',
+        security: [{ bearerAuth: [] }],
+        params: uuidParamSchema,
+        body: updateFulfilmentSchema,
+        response: { 200: successEnvelope(orderResponseSchema), ...commonErrorResponses },
+      },
+      preHandler: [app.authenticate, app.authorize(PERMISSIONS.ORDER_UPDATE)],
+    },
+    controller.updateFulfilment,
+  );
+
+  router.post<{ Params: UuidParam; Body: CompleteOrderInput }>(
+    '/orders/:id/complete',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: 'Mark a delivered order COMPLETED (Administration)',
+        description: 'Fulfils reserved stock and updates the vendor performance scorecard.',
+        security: [{ bearerAuth: [] }],
+        params: uuidParamSchema,
+        body: completeOrderSchema,
+        response: { 200: successEnvelope(orderResponseSchema), ...commonErrorResponses },
+      },
+      preHandler: [app.authenticate, app.authorize(PERMISSIONS.ORDER_COMPLETE)],
+    },
+    controller.complete,
+  );
+
+  router.post<{ Params: UuidParam; Body: RejectOrderInput }>(
+    '/orders/:id/reject',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: 'Reject an order (Administration)',
+        security: [{ bearerAuth: [] }],
+        params: uuidParamSchema,
+        body: rejectOrderSchema,
+        response: { 200: successEnvelope(orderResponseSchema), ...commonErrorResponses },
+      },
+      preHandler: [app.authenticate, app.authorize(PERMISSIONS.ORDER_REVIEW)],
+    },
+    controller.reject,
   );
 
   router.post<{ Params: UuidParam; Body: CancelOrderInput }>(
@@ -99,7 +170,7 @@ export function registerOrderRoutes(app: FastifyInstance, controller: OrderContr
     {
       schema: {
         tags: ['orders'],
-        summary: 'Cancel an order (restaurant / admin)',
+        summary: 'Cancel an order (restaurant pre-acceptance / Administration)',
         security: [{ bearerAuth: [] }],
         params: uuidParamSchema,
         body: cancelOrderSchema,

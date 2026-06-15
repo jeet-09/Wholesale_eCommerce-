@@ -47,3 +47,31 @@ export function lineSubtotal(quantity: DecimalInput, unitPrice: DecimalInput): P
     .times(new Prisma.Decimal(unitPrice))
     .toDecimalPlaces(MONEY_DP, Prisma.Decimal.ROUND_HALF_UP);
 }
+
+/** percentage of a base amount, rounded to money precision (e.g. 30% advance). */
+export function percentOf(base: DecimalInput, percent: DecimalInput): Prisma.Decimal {
+  return new Prisma.Decimal(base)
+    .times(new Prisma.Decimal(percent))
+    .dividedBy(100)
+    .toDecimalPlaces(MONEY_DP, Prisma.Decimal.ROUND_HALF_UP);
+}
+
+/** Apply a transport markup to a base price: base × (1 + percent/100). */
+export function applyTransportMarkup(base: DecimalInput, percent: DecimalInput): Prisma.Decimal {
+  return new Prisma.Decimal(base)
+    .times(new Prisma.Decimal(100).plus(new Prisma.Decimal(percent)))
+    .dividedBy(100)
+    .toDecimalPlaces(MONEY_DP, Prisma.Decimal.ROUND_HALF_UP);
+}
+
+/** Arithmetic mean of money values, rounded to money precision. Empty ⇒ 0. */
+export function averageMoney(values: DecimalInput[]): Prisma.Decimal {
+  if (values.length === 0) {
+    return new Prisma.Decimal(0);
+  }
+  const sum = values.reduce<Prisma.Decimal>(
+    (acc, value) => acc.plus(new Prisma.Decimal(value)),
+    new Prisma.Decimal(0),
+  );
+  return sum.dividedBy(values.length).toDecimalPlaces(MONEY_DP, Prisma.Decimal.ROUND_HALF_UP);
+}

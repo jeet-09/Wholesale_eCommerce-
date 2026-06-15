@@ -5,10 +5,14 @@ import { ok, paginated } from '../../common/responses';
 import type { UuidParam } from '../../common/schemas';
 import type { OrderService } from './order.service';
 import type {
+  AssignVendorInput,
   CancelOrderInput,
+  CompleteOrderInput,
   ListOrdersQueryInput,
   PlaceOrderInput,
-  UpdateOrderStatusInput,
+  RejectOrderInput,
+  UpdateFulfilmentInput,
+  VendorRespondInput,
 } from './order.schemas';
 
 export class OrderController {
@@ -18,8 +22,8 @@ export class OrderController {
     request: FastifyRequest<{ Body: PlaceOrderInput }>,
     reply: FastifyReply,
   ): Promise<void> => {
-    const orders = await this.service.placeOrder(getRequestContext(request), request.body);
-    await reply.code(201).send(ok(orders, request.id));
+    const order = await this.service.placeOrder(getRequestContext(request), request.body);
+    await reply.code(201).send(ok(order, request.id));
   };
 
   list = async (
@@ -38,11 +42,59 @@ export class OrderController {
     await reply.code(200).send(ok(order, request.id));
   };
 
-  updateStatus = async (
-    request: FastifyRequest<{ Params: UuidParam; Body: UpdateOrderStatusInput }>,
+  assignVendor = async (
+    request: FastifyRequest<{ Params: UuidParam; Body: AssignVendorInput }>,
     reply: FastifyReply,
   ): Promise<void> => {
-    const order = await this.service.updateStatus(
+    const order = await this.service.assignVendor(
+      request.params.id,
+      request.body,
+      getRequestContext(request),
+    );
+    await reply.code(200).send(ok(order, request.id));
+  };
+
+  respond = async (
+    request: FastifyRequest<{ Params: UuidParam; Body: VendorRespondInput }>,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    const order = await this.service.vendorRespond(
+      request.params.id,
+      request.body,
+      getRequestContext(request),
+    );
+    await reply.code(200).send(ok(order, request.id));
+  };
+
+  updateFulfilment = async (
+    request: FastifyRequest<{ Params: UuidParam; Body: UpdateFulfilmentInput }>,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    const order = await this.service.updateFulfilment(
+      request.params.id,
+      request.body,
+      getRequestContext(request),
+    );
+    await reply.code(200).send(ok(order, request.id));
+  };
+
+  complete = async (
+    request: FastifyRequest<{ Params: UuidParam; Body: CompleteOrderInput }>,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    const order = await this.service.complete(
+      request.params.id,
+      request.body,
+      getRequestContext(request),
+    );
+    await reply.code(200).send(ok(order, request.id));
+  };
+
+  reject = async (
+    request: FastifyRequest<{ Params: UuidParam; Body: RejectOrderInput }>,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    const order = await this.service.reject(
       request.params.id,
       request.body,
       getRequestContext(request),

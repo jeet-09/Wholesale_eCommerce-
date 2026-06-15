@@ -25,7 +25,7 @@ export function useLogin() {
       apiRequest<AuthResponse>('/auth/login', { method: 'POST', body }),
     onSuccess: (data) => {
       setSession(data);
-      router.replace('/products');
+      router.replace('/dashboard');
     },
   });
 }
@@ -38,7 +38,7 @@ export function useRegister() {
       apiRequest<AuthResponse>('/auth/register', { method: 'POST', body }),
     onSuccess: (data) => {
       setSession(data);
-      router.replace('/products');
+      router.replace('/dashboard');
     },
   });
 }

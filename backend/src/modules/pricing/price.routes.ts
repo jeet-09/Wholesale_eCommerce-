@@ -6,8 +6,13 @@ import { commonErrorResponses, paginatedEnvelope, successEnvelope } from '../../
 import { paginationQuerySchema } from '../../common/pagination';
 import type { PaginationQuery } from '../../common/pagination';
 import type { PricingController } from './price.controller';
-import { changePriceSchema, priceProductParamSchema, priceResponseSchema } from './price.schemas';
-import type { ChangePriceInput, PriceProductParam } from './price.schemas';
+import {
+  priceProductParamSchema,
+  priceResponseSchema,
+  priceSuggestionResponseSchema,
+  setPriceSchema,
+} from './price.schemas';
+import type { PriceProductParam, SetPriceInput } from './price.schemas';
 
 export function registerPricingRoutes(app: FastifyInstance, controller: PricingController): void {
   const router = app.withTypeProvider<ZodTypeProvider>();
@@ -17,7 +22,7 @@ export function registerPricingRoutes(app: FastifyInstance, controller: PricingC
     {
       schema: {
         tags: ['pricing'],
-        summary: 'Get the current price of a product',
+        summary: 'Get the current selling price of a product',
         security: [{ bearerAuth: [] }],
         params: priceProductParamSchema,
         response: { 200: successEnvelope(priceResponseSchema), ...commonErrorResponses },
@@ -27,12 +32,27 @@ export function registerPricingRoutes(app: FastifyInstance, controller: PricingC
     controller.getCurrent,
   );
 
+  router.get<{ Params: PriceProductParam }>(
+    '/products/:productId/price-suggestion',
+    {
+      schema: {
+        tags: ['pricing'],
+        summary: 'Suggested price from average vendor offer + transport (Administration / Admin)',
+        security: [{ bearerAuth: [] }],
+        params: priceProductParamSchema,
+        response: { 200: successEnvelope(priceSuggestionResponseSchema), ...commonErrorResponses },
+      },
+      preHandler: [app.authenticate, app.authorize(PERMISSIONS.PRICE_UPDATE)],
+    },
+    controller.getSuggestion,
+  );
+
   router.get<{ Params: PriceProductParam; Querystring: PaginationQuery }>(
     '/products/:productId/price-history',
     {
       schema: {
         tags: ['pricing'],
-        summary: 'List the append-only price history of a product',
+        summary: 'List the append-only selling-price history of a product',
         security: [{ bearerAuth: [] }],
         params: priceProductParamSchema,
         querystring: paginationQuerySchema,
@@ -43,19 +63,21 @@ export function registerPricingRoutes(app: FastifyInstance, controller: PricingC
     controller.listHistory,
   );
 
-  router.post<{ Params: PriceProductParam; Body: ChangePriceInput }>(
+  router.post<{ Params: PriceProductParam; Body: SetPriceInput }>(
     '/products/:productId/price',
     {
       schema: {
         tags: ['pricing'],
-        summary: 'Change a product price (closes current, inserts new)',
+        summary: 'Set/override the selling price (Administration / Admin)',
+        description:
+          'Omit `price` to accept the computed average + transport; provide `price` to override. Closes the current price row and inserts a new one.',
         security: [{ bearerAuth: [] }],
         params: priceProductParamSchema,
-        body: changePriceSchema,
+        body: setPriceSchema,
         response: { 201: successEnvelope(priceResponseSchema), ...commonErrorResponses },
       },
-      preHandler: [app.authenticate, app.authorize(PERMISSIONS.PRICE_CREATE)],
+      preHandler: [app.authenticate, app.authorize(PERMISSIONS.PRICE_UPDATE)],
     },
-    controller.changePrice,
+    controller.setPrice,
   );
 }

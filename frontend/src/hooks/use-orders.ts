@@ -10,6 +10,8 @@ export interface OrderFilters extends Record<string, QueryValue> {
   page?: number;
   pageSize?: number;
   status?: string;
+  vendorId?: string;
+  restaurantId?: string;
   sort?: string;
 }
 
@@ -35,11 +37,26 @@ function newIdempotencyKey(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+/** Shared cache invalidation + optimistic single-order cache update. */
+function useOrderMutation<TVars>(
+  mutationFn: (vars: TVars) => Promise<Order>,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: (data) => {
+      queryClient.setQueryData(['order', data.id], data);
+      void queryClient.invalidateQueries({ queryKey: ['orders'] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+}
+
 export function usePlaceOrder() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: { notes?: string }) =>
-      apiRequest<Order[]>('/orders', {
+      apiRequest<Order>('/orders', {
         method: 'POST',
         body,
         idempotencyKey: newIdempotencyKey(),
@@ -51,33 +68,43 @@ export function usePlaceOrder() {
   });
 }
 
-export function useUpdateOrderStatus() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      id,
-      status,
-      remarks,
-    }: {
-      id: string;
-      status: string;
-      remarks?: string;
-    }) => apiRequest<Order>(`/orders/${id}/status`, { method: 'PATCH', body: { status, remarks } }),
-    onSuccess: (data) => {
-      queryClient.setQueryData(['order', data.id], data);
-      void queryClient.invalidateQueries({ queryKey: ['orders'] });
-    },
-  });
+/** Administration assigns a vendor to a reviewed order. */
+export function useAssignVendor() {
+  return useOrderMutation(({ id, vendorId, remarks }: { id: string; vendorId: string; remarks?: string }) =>
+    apiRequest<Order>(`/orders/${id}/assign`, { method: 'POST', body: { vendorId, remarks } }),
+  );
+}
+
+/** Vendor accepts or rejects an assignment. */
+export function useVendorRespond() {
+  return useOrderMutation(({ id, accept, remarks }: { id: string; accept: boolean; remarks?: string }) =>
+    apiRequest<Order>(`/orders/${id}/respond`, { method: 'POST', body: { accept, remarks } }),
+  );
+}
+
+/** Vendor advances fulfilment (processing → ready → delivered). */
+export function useUpdateFulfilment() {
+  return useOrderMutation(({ id, status, remarks }: { id: string; status: string; remarks?: string }) =>
+    apiRequest<Order>(`/orders/${id}/fulfilment`, { method: 'PATCH', body: { status, remarks } }),
+  );
+}
+
+/** Administration marks a delivered order COMPLETED (optionally rates the vendor). */
+export function useCompleteOrder() {
+  return useOrderMutation(({ id, rating, remarks }: { id: string; rating?: number; remarks?: string }) =>
+    apiRequest<Order>(`/orders/${id}/complete`, { method: 'POST', body: { rating, remarks } }),
+  );
+}
+
+/** Administration rejects an order. */
+export function useRejectOrder() {
+  return useOrderMutation(({ id, reason }: { id: string; reason?: string }) =>
+    apiRequest<Order>(`/orders/${id}/reject`, { method: 'POST', body: { reason } }),
+  );
 }
 
 export function useCancelOrder() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
-      apiRequest<Order>(`/orders/${id}/cancel`, { method: 'POST', body: { reason } }),
-    onSuccess: (data) => {
-      queryClient.setQueryData(['order', data.id], data);
-      void queryClient.invalidateQueries({ queryKey: ['orders'] });
-    },
-  });
+  return useOrderMutation(({ id, reason }: { id: string; reason?: string }) =>
+    apiRequest<Order>(`/orders/${id}/cancel`, { method: 'POST', body: { reason } }),
+  );
 }

@@ -152,8 +152,8 @@ export default function CartPage() {
                 <span className="font-medium text-gray-900">{formatMoney(cart.subtotal)}</span>
               </div>
               <p className="mb-4 mt-2 text-xs text-gray-400">
-                Taxes and delivery are calculated per vendor when the order is placed. Items from
-                multiple vendors create separate orders.
+                Taxes and delivery are calculated when the order is placed. After placing, you’ll
+                pay a 30% advance and upload the payment proof. Administration then assigns a vendor.
               </p>
               {placeError && (
                 <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{placeError}</p>

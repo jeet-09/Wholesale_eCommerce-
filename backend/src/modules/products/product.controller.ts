@@ -5,6 +5,7 @@ import { ok, paginated } from '../../common/responses';
 import type { UuidParam } from '../../common/schemas';
 import type { ProductService } from './product.service';
 import type {
+  ChangeProductStatusInput,
   CreateProductInput,
   ListProductsQueryInput,
   UpdateProductInput,
@@ -42,6 +43,18 @@ export class ProductController {
     reply: FastifyReply,
   ): Promise<void> => {
     const product = await this.service.update(
+      request.params.id,
+      request.body,
+      getRequestContext(request),
+    );
+    await reply.code(200).send(ok(product, request.id));
+  };
+
+  changeStatus = async (
+    request: FastifyRequest<{ Params: UuidParam; Body: ChangeProductStatusInput }>,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    const product = await this.service.changeStatus(
       request.params.id,
       request.body,
       getRequestContext(request),

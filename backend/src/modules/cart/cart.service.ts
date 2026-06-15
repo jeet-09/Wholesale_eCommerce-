@@ -31,14 +31,14 @@ export class CartService {
     const restaurantId = requireRestaurantId(ctx);
 
     const product = await this.products.findById(input.productId);
-    if (!product || product.status !== 'ACTIVE') {
+    if (!product || product.status !== 'APPROVED') {
       throw new ValidationError('Product is not available', [
-        { field: 'productId', message: 'Product not found or not active' },
+        { field: 'productId', message: 'Product not found or not approved' },
       ]);
     }
     const currentPrice = await this.prices.findCurrent(input.productId);
     if (!currentPrice) {
-      throw new ValidationError('Product has no current price', [
+      throw new ValidationError('Product has no selling price yet', [
         { field: 'productId', message: 'Product is not purchasable yet' },
       ]);
     }

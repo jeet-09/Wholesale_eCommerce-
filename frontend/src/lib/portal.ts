@@ -20,25 +20,25 @@ const PORTALS: Record<PortalKind, Omit<PortalConfig, 'kind'>> = {
   restaurant: {
     label: 'Restaurant Portal',
     demoEmail: 'restaurant@demo.local',
-    homePath: '/products',
+    homePath: '/dashboard',
     badgeClass: 'bg-brand-100 text-brand-700',
   },
   vendor: {
     label: 'Vendor Portal',
     demoEmail: 'vendor@demo.local',
-    homePath: '/orders',
+    homePath: '/dashboard',
     badgeClass: 'bg-blue-100 text-blue-700',
   },
   admin: {
     label: 'Admin Portal',
     demoEmail: 'admin@procurement.local',
-    homePath: '/orders',
+    homePath: '/dashboard',
     badgeClass: 'bg-purple-100 text-purple-700',
   },
   ops: {
     label: 'Operations Portal',
     demoEmail: 'ops@procurement.local',
-    homePath: '/orders',
+    homePath: '/dashboard',
     badgeClass: 'bg-amber-100 text-amber-800',
   },
 };
@@ -53,4 +53,54 @@ function isPortalKind(value: string): value is PortalKind {
 export function resolvePortal(value: string | undefined | null): PortalConfig {
   const kind: PortalKind = value && isPortalKind(value) ? value : 'restaurant';
   return { kind, ...PORTALS[kind] };
+}
+
+/** Default localhost ports for each portal in the bundled docker-compose setup. */
+export const PORTAL_DEFAULT_PORTS: Record<PortalKind, number> = {
+  restaurant: 3000,
+  admin: 3001,
+  vendor: 3002,
+  ops: 3003,
+};
+
+/** Minimal role facts needed to decide which portal an account belongs to. */
+export interface PortalAccountFacts {
+  roles: string[];
+  isVendor: boolean;
+  isRestaurant: boolean;
+}
+
+/**
+ * Whether the signed-in account is allowed to use a given portal. Each branded
+ * portal is role-scoped (project-working.md role hierarchy): a Restaurant account
+ * cannot use the Vendor portal and vice versa. Admin (super-user) may also use the
+ * Operations portal.
+ */
+export function accountMatchesPortal(kind: PortalKind, facts: PortalAccountFacts): boolean {
+  switch (kind) {
+    case 'restaurant':
+      return facts.isRestaurant;
+    case 'vendor':
+      return facts.isVendor;
+    case 'admin':
+      return facts.roles.includes('ADMIN');
+    case 'ops':
+      return facts.roles.includes('OPERATIONS') || facts.roles.includes('ADMIN');
+    default:
+      return false;
+  }
+}
+
+/** The portal an account should be using, for redirect/help hints. */
+export function portalForAccount(facts: PortalAccountFacts): PortalKind {
+  if (facts.roles.includes('ADMIN')) return 'admin';
+  if (facts.roles.includes('OPERATIONS')) return 'ops';
+  if (facts.isVendor) return 'vendor';
+  if (facts.isRestaurant) return 'restaurant';
+  return 'restaurant';
+}
+
+/** Human label for a portal kind (e.g. for "use the Vendor Portal" hints). */
+export function portalLabel(kind: PortalKind): string {
+  return PORTALS[kind].label;
 }

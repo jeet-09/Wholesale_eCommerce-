@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { usePortal } from '@/components/portal-provider';
 import { useLogout } from '@/hooks/use-auth';
 import { useAuthStore } from '@/lib/auth-store';
+import { PERMISSIONS, useAuthz } from '@/lib/authz';
 import { cn } from '@/lib/cn';
 
 function NavLink({ href, label, active }: { href: string; label: string; active: boolean }) {
@@ -29,15 +30,26 @@ export function Nav() {
   const user = useAuthStore((s) => s.user);
   const context = useAuthStore((s) => s.context);
   const logout = useLogout();
+  const authz = useAuthz();
 
-  const isRestaurant = Boolean(context?.restaurantId);
-  const isVendor = Boolean(context?.vendorId);
-
+  // The storefront (browse + add to cart) is a Restaurant-only experience.
+  // Vendors interact with products only through Pricing & Inventory (offers);
+  // Admin/Administration manage them through the Catalog.
   const links = [
-    { href: '/products', label: 'Products' },
-    ...(isVendor ? [{ href: '/manage/products', label: 'Manage' }] : []),
-    ...(isRestaurant ? [{ href: '/cart', label: 'Cart' }] : []),
+    { href: '/dashboard', label: 'Dashboard' },
+    ...(authz.isRestaurant ? [{ href: '/products', label: 'Products' }] : []),
+    ...(authz.can(PERMISSIONS.PRODUCT_CREATE) || authz.can(PERMISSIONS.PRODUCT_REVIEW)
+      ? [{ href: '/manage/products', label: 'Catalog' }]
+      : []),
+    ...(authz.isVendor
+      ? [{ href: '/offers', label: 'Pricing & Inventory' }]
+      : authz.can(PERMISSIONS.OFFER_REVIEW)
+        ? [{ href: '/offers', label: 'Offers' }]
+        : []),
+    ...(authz.isRestaurant ? [{ href: '/cart', label: 'Cart' }] : []),
     { href: '/orders', label: 'Orders' },
+    ...(authz.can(PERMISSIONS.PAYMENT_VERIFY) ? [{ href: '/payments', label: 'Payments' }] : []),
+    ...(authz.can(PERMISSIONS.PERFORMANCE_VIEW) ? [{ href: '/vendors', label: 'Vendors' }] : []),
   ];
 
   return (

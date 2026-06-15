@@ -1,9 +1,10 @@
 import type { Prisma } from '@prisma/client';
 
 /**
- * Cart graph including each line's product, its current price and inventory.
- * Rich enough to (a) render the cart and (b) let the order flow re-read current
- * price/stock inside its transaction (DATABASE.md Order Creation Flow step 3).
+ * Cart graph including each line's master product and its current selling
+ * price. Rich enough to (a) render the cart and (b) let the order flow re-read
+ * the CURRENT selling price inside its transaction. Stock is NOT checked here:
+ * a vendor is only assigned after the order is placed (project-working.md).
  */
 export const cartInclude = {
   items: {
@@ -16,9 +17,7 @@ export const cartInclude = {
           sku: true,
           unit: true,
           status: true,
-          vendorId: true,
           prices: { where: { isCurrent: true }, take: 1 },
-          inventory: true,
         },
       },
     },

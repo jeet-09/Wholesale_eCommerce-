@@ -25,9 +25,14 @@ export class ProductRepository extends BaseRepository {
     });
   }
 
-  async existsSkuForVendor(vendorId: string, sku: string, tx?: PrismaExecutor): Promise<boolean> {
+  /** SKU is unique platform-wide for the master catalog (case-insensitive). */
+  async existsSku(sku: string, excludeId?: string, tx?: PrismaExecutor): Promise<boolean> {
     const found = await this.exec(tx).product.findFirst({
-      where: { vendorId, sku, ...this.notDeleted },
+      where: {
+        sku: { equals: sku, mode: 'insensitive' },
+        ...this.notDeleted,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
       select: { id: true },
     });
     return found !== null;
@@ -44,7 +49,7 @@ export class ProductRepository extends BaseRepository {
   softDelete(id: string, deletedBy: string, tx?: PrismaExecutor): Promise<Product> {
     return this.exec(tx).product.update({
       where: { id },
-      data: { deletedAt: new Date(), updatedBy: deletedBy, status: 'ARCHIVED' },
+      data: { deletedAt: new Date(), updatedBy: deletedBy, status: 'INACTIVE' },
     });
   }
 

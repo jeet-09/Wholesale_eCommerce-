@@ -2,11 +2,13 @@ import { Prisma } from '@prisma/client';
 import type { FastifyBaseLogger } from 'fastify';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { InsufficientStockError, OrderNotModifiableError } from '../../../common/errors';
+import { OrderNotModifiableError, ValidationError } from '../../../common/errors';
 import type { RequestContext } from '../../../common/types';
 import type { Database } from '../../../database/prisma';
 import type { CartRepository } from '../../cart/cart.repository';
-import type { InventoryRepository } from '../../inventory/inventory.repository';
+import type { OfferRepository } from '../../vendor-offers/offer.repository';
+import type { PerformanceRepository } from '../../vendor-performance/performance.repository';
+import type { VendorRepository } from '../../vendors/vendor.repository';
 import type { SettingRepository } from '../../settings/setting.repository';
 import type { AuditService } from '../../audit/audit.service';
 import { OrderService } from '../order.service';
@@ -28,22 +30,22 @@ function restaurantCtx(): RequestContext {
   };
 }
 
-function vendorCtx(): RequestContext {
+function adminCtx(): RequestContext {
   return {
     requestId: 'req-test',
-    userId: 'user-2',
-    email: 'vendor@demo.local',
-    roles: ['VENDOR'],
+    userId: 'admin-1',
+    email: 'ops@demo.local',
+    roles: ['OPERATIONS'],
     permissions: [],
-    organizationId: 'org-2',
+    organizationId: null,
     restaurantId: null,
-    vendorId: 'vendor-1',
+    vendorId: null,
     ipAddress: null,
     userAgent: null,
   };
 }
 
-/** A cart line whose product belongs to `vendor-1` and is ACTIVE with a price. */
+/** A cart line whose master product is APPROVED with a current selling price. */
 function cartWithOneItem(quantity: number) {
   return {
     id: 'cart-1',
@@ -56,13 +58,51 @@ function cartWithOneItem(quantity: number) {
           name: 'Tomatoes',
           sku: 'SKU-1',
           unit: 'KG',
-          status: 'ACTIVE',
-          vendorId: 'vendor-1',
+          status: 'APPROVED',
           prices: [{ price: new Prisma.Decimal('50.00') }],
-          inventory: null,
         },
       },
     ],
+  };
+}
+
+/** A complete order graph good enough for toOrderDto. */
+function fullOrder(overrides: Record<string, unknown> = {}) {
+  const now = new Date('2026-01-01T00:00:00.000Z');
+  return {
+    id: 'order-1',
+    orderNumber: 'ORD-2026-000001',
+    restaurantId: 'rest-1',
+    assignedVendorId: null,
+    status: 'PENDING_PAYMENT',
+    currency: 'INR',
+    subtotal: new Prisma.Decimal('500.00'),
+    discountAmount: new Prisma.Decimal('0.00'),
+    gstAmount: new Prisma.Decimal('0.00'),
+    deliveryCharges: new Prisma.Decimal('0.00'),
+    totalAmount: new Prisma.Decimal('500.00'),
+    advancePercent: new Prisma.Decimal('30'),
+    advanceAmount: new Prisma.Decimal('150.00'),
+    remainingAmount: new Prisma.Decimal('350.00'),
+    placedAt: now,
+    paymentSubmittedAt: null,
+    paymentVerifiedAt: null,
+    reviewedAt: null,
+    assignedAt: null,
+    acceptedAt: null,
+    readyAt: null,
+    deliveredAt: null,
+    completedAt: null,
+    rejectedAt: null,
+    cancelledAt: null,
+    items: [],
+    statusHistory: [],
+    payments: [],
+    assignedVendor: null,
+    restaurant: { id: 'rest-1', restaurantName: 'Demo Bistro' },
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
   };
 }
 
@@ -70,25 +110,26 @@ interface Mocks {
   db: Database;
   orders: OrderRepository;
   carts: CartRepository;
-  inventory: InventoryRepository;
+  offers: OfferRepository;
+  performance: PerformanceRepository;
+  vendors: VendorRepository;
   outbox: OutboxRepository;
   settings: SettingRepository;
   audit: AuditService;
 }
 
 function buildService(): { service: OrderService; mocks: Mocks } {
-  // $transaction runs the callback with a sentinel tx and propagates throws,
-  // mirroring Prisma's "callback throws => ROLLBACK" semantics.
   const db = {
     $transaction: vi.fn(async (cb: (tx: unknown) => unknown) => cb({})),
   } as unknown as Database;
 
   const orders = {
-    nextOrderNumber: vi.fn(),
-    create: vi.fn(),
+    nextOrderNumber: vi.fn().mockResolvedValue(1n),
+    create: vi.fn().mockResolvedValue({ id: 'order-1' }),
     createItems: vi.fn(),
     appendStatus: vi.fn(),
     updateStatusFields: vi.fn(),
+    findById: vi.fn(),
     findByIdWithRelations: vi.fn(),
     list: vi.fn(),
   } as unknown as OrderRepository;
@@ -98,59 +139,57 @@ function buildService(): { service: OrderService; mocks: Mocks } {
     updateStatus: vi.fn(),
   } as unknown as CartRepository;
 
-  const inventory = {
-    findByProductId: vi.fn(),
+  const offers = {
+    findByVendorAndProduct: vi.fn(),
     reserve: vi.fn(),
     release: vi.fn(),
     fulfil: vi.fn(),
-  } as unknown as InventoryRepository;
+  } as unknown as OfferRepository;
+
+  const performance = {
+    ensure: vi.fn(),
+    increment: vi.fn(),
+  } as unknown as PerformanceRepository;
+
+  const vendors = {
+    findById: vi.fn(),
+  } as unknown as VendorRepository;
 
   const outbox = { enqueue: vi.fn() } as unknown as OutboxRepository;
 
   const settings = {
-    getNumber: vi.fn().mockResolvedValue(new Prisma.Decimal(0)),
+    getNumber: vi.fn().mockImplementation((_key: string, fallback: number) =>
+      Promise.resolve(new Prisma.Decimal(fallback)),
+    ),
   } as unknown as SettingRepository;
 
   const audit = { record: vi.fn() } as unknown as AuditService;
 
   const logger = { info: vi.fn(), error: vi.fn(), warn: vi.fn() } as unknown as FastifyBaseLogger;
 
-  const service = new OrderService(db, orders, carts, inventory, outbox, settings, audit, logger);
-  return { service, mocks: { db, orders, carts, inventory, outbox, settings, audit } };
+  const service = new OrderService(
+    db,
+    orders,
+    carts,
+    offers,
+    performance,
+    vendors,
+    outbox,
+    settings,
+    audit,
+    logger,
+  );
+  return {
+    service,
+    mocks: { db, orders, carts, offers, performance, vendors, outbox, settings, audit },
+  };
 }
 
-describe('OrderService.placeOrder rollback', () => {
+describe('OrderService.placeOrder', () => {
   let ctx: RequestContext;
 
   beforeEach(() => {
     ctx = restaurantCtx();
-  });
-
-  it('throws InsufficientStockError and persists nothing when stock is short', async () => {
-    const { service, mocks } = buildService();
-
-    vi.mocked(mocks.carts.getActiveByRestaurant).mockResolvedValue(
-      cartWithOneItem(10) as never,
-    );
-    // sellable = available(5) - reserved(0) = 5 < requested 10
-    vi.mocked(mocks.inventory.findByProductId).mockResolvedValue({
-      id: 'inv-1',
-      productId: 'prod-1',
-      availableQuantity: new Prisma.Decimal(5),
-      reservedQuantity: new Prisma.Decimal(0),
-      version: 0,
-    } as never);
-
-    await expect(service.placeOrder(ctx, {})).rejects.toBeInstanceOf(InsufficientStockError);
-
-    // The transaction ran but its callback threw => rolled back.
-    expect(mocks.db.$transaction).toHaveBeenCalledTimes(1);
-    // Nothing after the stock check should have executed/persisted.
-    expect(mocks.inventory.reserve).not.toHaveBeenCalled();
-    expect(mocks.orders.create).not.toHaveBeenCalled();
-    expect(mocks.orders.createItems).not.toHaveBeenCalled();
-    expect(mocks.outbox.enqueue).not.toHaveBeenCalled();
-    expect(mocks.carts.updateStatus).not.toHaveBeenCalled();
   });
 
   it('rejects an empty cart without opening writes', async () => {
@@ -164,22 +203,67 @@ describe('OrderService.placeOrder rollback', () => {
     expect(mocks.orders.create).not.toHaveBeenCalled();
     expect(mocks.carts.updateStatus).not.toHaveBeenCalled();
   });
+
+  it('creates a PENDING_PAYMENT order with a 30% advance and no vendor', async () => {
+    const { service, mocks } = buildService();
+    vi.mocked(mocks.carts.getActiveByRestaurant).mockResolvedValue(cartWithOneItem(10) as never);
+    vi.mocked(mocks.settings.getNumber).mockImplementation((key: string) =>
+      Promise.resolve(new Prisma.Decimal(key === 'ADVANCE_PERCENTAGE' ? 30 : 0)),
+    );
+    vi.mocked(mocks.orders.findByIdWithRelations).mockResolvedValue(fullOrder() as never);
+
+    const dto = await service.placeOrder(ctx, {});
+
+    expect(mocks.orders.create).toHaveBeenCalledTimes(1);
+    const createArg = vi.mocked(mocks.orders.create).mock.calls[0]![0] as {
+      status: string;
+      totalAmount: Prisma.Decimal;
+      advanceAmount: Prisma.Decimal;
+    };
+    expect(createArg.status).toBe('PENDING_PAYMENT');
+    // subtotal = 10 * 50 = 500; gst/delivery = 0; total = 500; advance = 30% = 150
+    expect(createArg.totalAmount.toFixed(2)).toBe('500.00');
+    expect(createArg.advanceAmount.toFixed(2)).toBe('150.00');
+    expect(mocks.carts.updateStatus).toHaveBeenCalledWith('cart-1', 'CHECKED_OUT', expect.anything());
+    expect(dto.status).toBe('PENDING_PAYMENT');
+  });
 });
 
-describe('OrderService.updateStatus state machine', () => {
-  it('rejects an illegal transition without starting a transaction', async () => {
+describe('OrderService.assignVendor', () => {
+  it('rejects assignment when the vendor does not supply an item', async () => {
     const { service, mocks } = buildService();
-    vi.mocked(mocks.orders.findByIdWithRelations).mockResolvedValue({
-      id: 'order-1',
-      status: 'DELIVERED',
-      vendorId: 'vendor-1',
-      restaurantId: 'rest-1',
-      items: [],
+    vi.mocked(mocks.orders.findByIdWithRelations).mockResolvedValue(
+      fullOrder({
+        status: 'PENDING_ADMIN_REVIEW',
+        items: [{ productId: 'prod-1', productName: 'Tomatoes', quantity: new Prisma.Decimal(10) }],
+      }) as never,
+    );
+    vi.mocked(mocks.vendors.findById).mockResolvedValue({
+      id: 'vendor-1',
+      status: 'ACTIVE',
+      deletedAt: null,
     } as never);
+    // No approved offer for this vendor/product.
+    vi.mocked(mocks.offers.findByVendorAndProduct).mockResolvedValue(null);
 
     await expect(
-      service.updateStatus('order-1', { status: 'ACCEPTED' }, vendorCtx()),
-    ).rejects.toBeInstanceOf(OrderNotModifiableError);
+      service.assignVendor('order-1', { vendorId: 'vendor-1' }, adminCtx()),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    expect(mocks.offers.reserve).not.toHaveBeenCalled();
+  });
+});
+
+describe('OrderService state machine', () => {
+  it('rejects completing an order that is not delivered', async () => {
+    const { service, mocks } = buildService();
+    vi.mocked(mocks.orders.findByIdWithRelations).mockResolvedValue(
+      fullOrder({ status: 'PENDING_PAYMENT' }) as never,
+    );
+
+    await expect(service.complete('order-1', {}, adminCtx())).rejects.toBeInstanceOf(
+      OrderNotModifiableError,
+    );
 
     expect(mocks.db.$transaction).not.toHaveBeenCalled();
     expect(mocks.orders.updateStatusFields).not.toHaveBeenCalled();

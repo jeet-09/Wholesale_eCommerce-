@@ -71,16 +71,18 @@ export interface MoneyWithCurrency {
   currency: string;
 }
 
-export interface ProductInventory {
-  availableQuantity: string;
-  reservedQuantity: string;
-  sellableQuantity: string;
+/** Aggregated vendor supply for a master-catalog product. */
+export interface ProductSupply {
+  vendorCount: number;
+  averageVendorPrice: string | null;
+  lowestVendorPrice: string | null;
+  computedPrice: string | null;
+  totalAvailableQuantity: string;
+  inStock: boolean;
 }
 
 export interface Product {
   id: string;
-  vendorId: string;
-  vendorName: string | null;
   categoryId: string;
   categoryName: string | null;
   sku: string;
@@ -90,8 +92,10 @@ export interface Product {
   brand: string | null;
   status: string;
   isFeatured: boolean;
-  currentPrice: MoneyWithCurrency | null;
-  inventory: ProductInventory | null;
+  transportPercent: string;
+  /** Final selling price shown to restaurants (admin-controlled). */
+  sellingPrice: MoneyWithCurrency | null;
+  supply: ProductSupply;
   createdAt: string;
   updatedAt: string;
 }
@@ -113,21 +117,104 @@ export interface ProductPrice {
   productId: string;
   price: string;
   currency: string;
+  averageVendorPrice: string | null;
+  transportPercent: string | null;
+  isOverride: boolean;
   effectiveFrom: string;
   effectiveTo: string | null;
   isCurrent: boolean;
   createdAt: string;
 }
 
-export interface Inventory {
-  id: string;
+/** Suggested selling price from average vendor offers + transport markup. */
+export interface PriceSuggestion {
   productId: string;
+  vendorCount: number;
+  averageVendorPrice: string | null;
+  transportPercent: string;
+  computedPrice: string | null;
+  currentPrice: string | null;
+  currency: string;
+}
+
+/** A vendor's price + stock offer against a master-catalog product. */
+export interface Offer {
+  id: string;
+  vendorId: string;
+  vendorName: string | null;
+  productId: string;
+  productName: string | null;
+  productSku: string | null;
+  unit: string | null;
+  vendorPrice: string;
+  currency: string;
   availableQuantity: string;
   reservedQuantity: string;
   sellableQuantity: string;
-  minimumQuantity: string;
-  maximumQuantity: string | null;
-  version: number;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Payment {
+  id: string;
+  orderId: string;
+  orderNumber: string | null;
+  paymentType: string;
+  amount: string;
+  currency: string;
+  status: string;
+  proofUrl: string | null;
+  transactionReference: string | null;
+  remarks: string | null;
+  submittedBy: string | null;
+  verifiedBy: string | null;
+  verifiedAt: string | null;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+export interface VendorPerformance {
+  vendorId: string;
+  vendorName: string | null;
+  totalAssigned: number;
+  totalAccepted: number;
+  totalRejected: number;
+  totalCompleted: number;
+  totalNoResponse: number;
+  acceptanceRate: number;
+  completionRate: number;
+  successRate: number;
+  averageFulfilmentMinutes: number | null;
+  averageRating: number | null;
+}
+
+export interface DashboardMetric {
+  key: string;
+  label: string;
+  value: number;
+}
+
+export interface DashboardStatusCount {
+  status: string;
+  count: number;
+}
+
+export interface Dashboard {
+  scope: 'admin' | 'vendor' | 'restaurant';
+  generatedAt: string;
+  metrics: DashboardMetric[];
+  ordersByStatus: DashboardStatusCount[];
+}
+
+export interface Vendor {
+  id: string;
+  organizationId: string;
+  vendorName: string;
+  vendorCode: string;
+  businessCategory: string | null;
+  status: string;
+  createdAt: string;
   updatedAt: string;
 }
 
@@ -179,8 +266,8 @@ export interface Order {
   orderNumber: string;
   restaurantId: string;
   restaurantName: string | null;
-  vendorId: string;
-  vendorName: string | null;
+  assignedVendorId: string | null;
+  assignedVendorName: string | null;
   status: string;
   currency: string;
   subtotal: string;
@@ -188,12 +275,23 @@ export interface Order {
   gstAmount: string;
   deliveryCharges: string;
   totalAmount: string;
+  advancePercent: string;
+  advanceAmount: string;
+  remainingAmount: string;
   placedAt: string | null;
+  paymentSubmittedAt: string | null;
+  paymentVerifiedAt: string | null;
+  reviewedAt: string | null;
+  assignedAt: string | null;
   acceptedAt: string | null;
+  readyAt: string | null;
   deliveredAt: string | null;
+  completedAt: string | null;
+  rejectedAt: string | null;
   cancelledAt: string | null;
   items: OrderItem[];
   statusHistory: OrderStatusHistory[];
+  payments: Payment[];
   createdAt: string;
   updatedAt: string;
 }

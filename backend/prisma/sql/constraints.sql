@@ -46,9 +46,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_org_members_org_user_active
   ON organization_members (organization_id, user_id)
   WHERE deleted_at IS NULL;
 
--- products: SKU unique per vendor among active rows.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_products_vendor_sku_active
-  ON products (vendor_id, sku)
+-- products: SKU unique platform-wide among active rows (master catalog).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_products_sku_active
+  ON products (lower(sku))
+  WHERE deleted_at IS NULL;
+
+-- vendor_product_offers: one active offer per (vendor, product).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_vendor_offers_vendor_product_active
+  ON vendor_product_offers (vendor_id, product_id)
   WHERE deleted_at IS NULL;
 
 -- product_prices: exactly one current price per product.
@@ -77,17 +82,17 @@ CREATE INDEX IF NOT EXISTS idx_products_name_trgm
 -- DROP + ADD for idempotency (Postgres has no ADD CONSTRAINT IF NOT EXISTS).
 -- -----------------------------------------------------------------------------
 
--- inventories: non-negative + reserved <= available (INVENTORY FORMULA invariants).
-ALTER TABLE inventories DROP CONSTRAINT IF EXISTS chk_inventories_available_nonneg;
-ALTER TABLE inventories ADD  CONSTRAINT chk_inventories_available_nonneg CHECK (available_quantity >= 0);
-ALTER TABLE inventories DROP CONSTRAINT IF EXISTS chk_inventories_reserved_nonneg;
-ALTER TABLE inventories ADD  CONSTRAINT chk_inventories_reserved_nonneg CHECK (reserved_quantity >= 0);
-ALTER TABLE inventories DROP CONSTRAINT IF EXISTS chk_inventories_minimum_nonneg;
-ALTER TABLE inventories ADD  CONSTRAINT chk_inventories_minimum_nonneg CHECK (minimum_quantity >= 0);
-ALTER TABLE inventories DROP CONSTRAINT IF EXISTS chk_inventories_reserved_le_available;
-ALTER TABLE inventories ADD  CONSTRAINT chk_inventories_reserved_le_available CHECK (reserved_quantity <= available_quantity);
+-- vendor_product_offers: non-negative + reserved <= available (sellable formula).
+ALTER TABLE vendor_product_offers DROP CONSTRAINT IF EXISTS chk_offers_price_nonneg;
+ALTER TABLE vendor_product_offers ADD  CONSTRAINT chk_offers_price_nonneg CHECK (vendor_price >= 0);
+ALTER TABLE vendor_product_offers DROP CONSTRAINT IF EXISTS chk_offers_available_nonneg;
+ALTER TABLE vendor_product_offers ADD  CONSTRAINT chk_offers_available_nonneg CHECK (available_quantity >= 0);
+ALTER TABLE vendor_product_offers DROP CONSTRAINT IF EXISTS chk_offers_reserved_nonneg;
+ALTER TABLE vendor_product_offers ADD  CONSTRAINT chk_offers_reserved_nonneg CHECK (reserved_quantity >= 0);
+ALTER TABLE vendor_product_offers DROP CONSTRAINT IF EXISTS chk_offers_reserved_le_available;
+ALTER TABLE vendor_product_offers ADD  CONSTRAINT chk_offers_reserved_le_available CHECK (reserved_quantity <= available_quantity);
 
--- orders: non-negative money + total formula consistency.
+-- orders: non-negative money + total formula + advance/remaining consistency.
 ALTER TABLE orders DROP CONSTRAINT IF EXISTS chk_orders_subtotal_nonneg;
 ALTER TABLE orders ADD  CONSTRAINT chk_orders_subtotal_nonneg CHECK (subtotal >= 0);
 ALTER TABLE orders DROP CONSTRAINT IF EXISTS chk_orders_discount_nonneg;
@@ -101,6 +106,11 @@ ALTER TABLE orders ADD  CONSTRAINT chk_orders_total_nonneg CHECK (total_amount >
 ALTER TABLE orders DROP CONSTRAINT IF EXISTS chk_orders_total_formula;
 ALTER TABLE orders ADD  CONSTRAINT chk_orders_total_formula
   CHECK (total_amount = subtotal - discount_amount + gst_amount + delivery_charges);
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS chk_orders_advance_nonneg;
+ALTER TABLE orders ADD  CONSTRAINT chk_orders_advance_nonneg CHECK (advance_amount >= 0);
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS chk_orders_remaining_formula;
+ALTER TABLE orders ADD  CONSTRAINT chk_orders_remaining_formula
+  CHECK (remaining_amount = total_amount - advance_amount);
 
 -- order_items / cart_items: positive quantity, non-negative subtotal.
 ALTER TABLE order_items DROP CONSTRAINT IF EXISTS chk_order_items_qty_pos;
@@ -143,10 +153,16 @@ BEGIN
       ('categories',             'updated_by', 'fk_categories_updated_by'),
       ('products',               'created_by', 'fk_products_created_by'),
       ('products',               'updated_by', 'fk_products_updated_by'),
+      ('vendor_product_offers',  'created_by', 'fk_vendor_offers_created_by'),
+      ('vendor_product_offers',  'updated_by', 'fk_vendor_offers_updated_by'),
       ('product_prices',         'created_by', 'fk_product_prices_created_by'),
       ('orders',                 'created_by', 'fk_orders_created_by'),
+      ('orders',                 'assigned_by','fk_orders_assigned_by'),
       ('order_status_history',   'changed_by', 'fk_order_status_history_changed_by'),
       ('order_notes',            'created_by', 'fk_order_notes_created_by'),
+      ('payments',               'submitted_by','fk_payments_submitted_by'),
+      ('payments',               'verified_by', 'fk_payments_verified_by'),
+      ('vendor_call_logs',       'called_by',  'fk_vendor_call_logs_called_by'),
       ('documents',              'uploaded_by','fk_documents_uploaded_by')
     ) AS t(table_name, column_name, constraint_name)
   LOOP

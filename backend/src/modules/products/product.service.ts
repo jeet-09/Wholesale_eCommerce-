@@ -1,7 +1,7 @@
 import type { Prisma, Product } from '@prisma/client';
 import type { FastifyBaseLogger } from 'fastify';
 
-import { assertVendorAccess, isPrivileged, requireVendorId } from '../../common/authz';
+import { assertAdmin, isPrivileged } from '../../common/authz';
 import { DuplicateResourceError, InternalError, NotFoundError } from '../../common/errors';
 import { buildPaginationMeta, parseSort, toPaginationArgs } from '../../common/pagination';
 import type { PaginationMeta } from '../../common/pagination';
@@ -10,12 +10,11 @@ import type { Database } from '../../database/prisma';
 import type { AuditService } from '../audit/audit.service';
 import { AUDIT_ACTIONS } from '../audit/audit.types';
 import type { CategoryRepository } from '../categories/category.repository';
-import type { ProductPriceRepository } from '../pricing/price.repository';
-import type { InventoryRepository } from '../inventory/inventory.repository';
 import type { ProductRepository } from './product.repository';
 import { toProductDto } from './product.mapper';
 import type { ProductDto, ProductWithRelations } from './product.types';
 import type {
+  ChangeProductStatusInput,
   CreateProductInput,
   ListProductsQueryInput,
   UpdateProductInput,
@@ -23,12 +22,15 @@ import type {
 
 const SORTABLE_FIELDS = ['createdAt', 'name', 'status'] as const;
 
+/**
+ * Master-catalog products are platform-controlled (project-working.md PRODUCT
+ * MANAGEMENT): only Admin can create/edit/delete; Administration + Admin can
+ * approve/reject. Restaurants and vendors only ever see APPROVED products.
+ */
 export class ProductService {
   constructor(
     private readonly db: Database,
     private readonly products: ProductRepository,
-    private readonly prices: ProductPriceRepository,
-    private readonly inventory: InventoryRepository,
     private readonly categories: CategoryRepository,
     private readonly audit: AuditService,
     private readonly logger: FastifyBaseLogger,
@@ -39,8 +41,7 @@ export class ProductService {
     if (!product) {
       throw new NotFoundError('Product not found');
     }
-    // Non-active products are only visible to their owner or platform staff.
-    if (product.status !== 'ACTIVE' && !isPrivileged(ctx) && product.vendorId !== ctx.vendorId) {
+    if (product.status !== 'APPROVED' && !isPrivileged(ctx)) {
       throw new NotFoundError('Product not found');
     }
     return toProductDto(product);
@@ -60,26 +61,18 @@ export class ProductService {
     if (query.isFeatured !== undefined) {
       where.isFeatured = query.isFeatured;
     }
+    if (query.inStock) {
+      where.offers = { some: { status: 'APPROVED', deletedAt: null, availableQuantity: { gt: 0 } } };
+    }
 
     if (isPrivileged(ctx)) {
-      if (query.status) {
-        where.status = query.status;
-      }
-      if (query.vendorId) {
-        where.vendorId = query.vendorId;
-      }
-    } else if (ctx.vendorId) {
-      // Vendors see their own full catalog (any status).
-      where.vendorId = ctx.vendorId;
+      // Admin / Administration see the full catalog and may filter by status.
       if (query.status) {
         where.status = query.status;
       }
     } else {
-      // Restaurants and other buyers see only the active storefront.
-      where.status = 'ACTIVE';
-      if (query.vendorId) {
-        where.vendorId = query.vendorId;
-      }
+      // Restaurants and vendors only ever see the approved storefront.
+      where.status = 'APPROVED';
     }
 
     const orderBy = parseSort(query.sort, SORTABLE_FIELDS).map((sort) => ({
@@ -95,41 +88,33 @@ export class ProductService {
   }
 
   async create(input: CreateProductInput, ctx: RequestContext): Promise<ProductDto> {
-    const vendorId = isPrivileged(ctx) && input.vendorId ? input.vendorId : requireVendorId(ctx);
+    assertAdmin(ctx);
 
     const category = await this.categories.findById(input.categoryId);
     if (!category) {
       throw new NotFoundError('Category not found');
     }
-    if (await this.products.existsSkuForVendor(vendorId, input.sku)) {
-      throw new DuplicateResourceError('A product with this SKU already exists for the vendor', [
-        { field: 'sku', message: 'SKU must be unique per vendor' },
+    if (await this.products.existsSku(input.sku)) {
+      throw new DuplicateResourceError('A product with this SKU already exists', [
+        { field: 'sku', message: 'SKU must be unique across the catalog' },
       ]);
     }
 
     const created = await this.db.$transaction(async (tx) => {
       const product = await this.products.create(
         {
-          vendorId,
           categoryId: input.categoryId,
           sku: input.sku,
           name: input.name,
           description: input.description ?? null,
           unit: input.unit,
           brand: input.brand ?? null,
-          status: input.status,
+          status: 'DRAFT',
           isFeatured: input.isFeatured,
+          ...(input.transportPercent !== undefined ? { transportPercent: input.transportPercent } : {}),
           createdBy: ctx.userId,
           updatedBy: ctx.userId,
         },
-        tx,
-      );
-      await this.prices.create(
-        { productId: product.id, price: input.price, currency: input.currency, createdBy: ctx.userId },
-        tx,
-      );
-      await this.inventory.create(
-        { productId: product.id, availableQuantity: input.initialStock, minimumQuantity: input.minimumStock },
         tx,
       );
       await this.audit.record(
@@ -148,13 +133,13 @@ export class ProductService {
       return product;
     });
 
-    this.logger.info({ productId: created.id, vendorId }, 'product created');
+    this.logger.info({ productId: created.id }, 'master product created');
     return this.requireWithRelations(created.id);
   }
 
   async update(id: string, input: UpdateProductInput, ctx: RequestContext): Promise<ProductDto> {
-    const product = await this.ensureExists(id);
-    assertVendorAccess(ctx, product.vendorId);
+    assertAdmin(ctx);
+    await this.ensureExists(id);
 
     if (input.categoryId) {
       const category = await this.categories.findById(input.categoryId);
@@ -167,9 +152,10 @@ export class ProductService {
       name: input.name,
       description: input.description,
       brand: input.brand,
+      unit: input.unit,
       category: input.categoryId ? { connect: { id: input.categoryId } } : undefined,
-      status: input.status,
       isFeatured: input.isFeatured,
+      transportPercent: input.transportPercent,
       updatedBy: ctx.userId,
     });
 
@@ -187,9 +173,33 @@ export class ProductService {
     return this.requireWithRelations(id);
   }
 
-  async delete(id: string, ctx: RequestContext): Promise<void> {
+  /** Approve / reject / (de)activate a product (Administration or Admin). */
+  async changeStatus(
+    id: string,
+    input: ChangeProductStatusInput,
+    ctx: RequestContext,
+  ): Promise<ProductDto> {
     const product = await this.ensureExists(id);
-    assertVendorAccess(ctx, product.vendorId);
+
+    await this.products.update(id, { status: input.status, updatedBy: ctx.userId });
+    await this.audit.record({
+      userId: ctx.userId,
+      entityType: 'product',
+      entityId: id,
+      action: AUDIT_ACTIONS.PRODUCT_STATUS_CHANGED,
+      oldValue: { status: product.status },
+      newValue: { status: input.status, remarks: input.remarks ?? null },
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      requestId: ctx.requestId,
+    });
+
+    return this.requireWithRelations(id);
+  }
+
+  async delete(id: string, ctx: RequestContext): Promise<void> {
+    assertAdmin(ctx);
+    await this.ensureExists(id);
     await this.products.softDelete(id, ctx.userId);
     await this.audit.record({
       userId: ctx.userId,

@@ -4,9 +4,24 @@ import type { RequestContext } from './types';
 
 const PRIVILEGED_ROLES: string[] = [ROLES.ADMIN, ROLES.OPERATIONS];
 
-/** Platform staff (admin/operations) can act across organizations. */
+/** Platform staff (admin/operations a.k.a. "Administration") act across orgs. */
 export function isPrivileged(ctx: RequestContext): boolean {
   return ctx.roles.some((role) => PRIVILEGED_ROLES.includes(role));
+}
+
+/** True only for the top-level Admin role. */
+export function isAdmin(ctx: RequestContext): boolean {
+  return ctx.roles.includes(ROLES.ADMIN);
+}
+
+/**
+ * Master-catalog mutations (create/edit/delete products) are Admin-only
+ * (project-working.md PRODUCT MANAGEMENT). Throws for everyone else.
+ */
+export function assertAdmin(ctx: RequestContext): void {
+  if (!isAdmin(ctx)) {
+    throw new ForbiddenError('Only an Admin can perform this action');
+  }
 }
 
 /**

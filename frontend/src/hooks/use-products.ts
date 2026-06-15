@@ -4,7 +4,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 
 import { apiRequest, apiRequestPaginated } from '@/lib/api';
 import type { QueryValue } from '@/lib/api';
-import type { Inventory, Product, ProductPrice } from '@/lib/types';
+import type { PriceSuggestion, Product, ProductPrice } from '@/lib/types';
 
 export interface ProductFilters extends Record<string, QueryValue> {
   page?: number;
@@ -12,8 +12,8 @@ export interface ProductFilters extends Record<string, QueryValue> {
   search?: string;
   status?: string;
   categoryId?: string;
-  vendorId?: string;
   isFeatured?: boolean;
+  inStock?: boolean;
   sort?: string;
 }
 
@@ -25,7 +25,7 @@ export function useProducts(filters: ProductFilters) {
   });
 }
 
-// --- Vendor catalog management ---------------------------------------------
+// --- Master catalog management (Admin) -------------------------------------
 
 export interface CreateProductBody {
   categoryId: string;
@@ -34,12 +34,8 @@ export interface CreateProductBody {
   description?: string | null;
   unit: string;
   brand?: string | null;
-  status: string;
   isFeatured: boolean;
-  price: number;
-  currency: string;
-  initialStock: number;
-  minimumStock: number;
+  transportPercent?: number;
 }
 
 export interface UpdateProductBody {
@@ -47,8 +43,9 @@ export interface UpdateProductBody {
   description?: string | null;
   brand?: string | null;
   categoryId?: string;
-  status?: string;
+  unit?: string;
   isFeatured?: boolean;
+  transportPercent?: number;
 }
 
 export function useCreateProduct() {
@@ -77,35 +74,40 @@ export function useDeleteProduct() {
   });
 }
 
-export function useChangePrice() {
+/** Approve / reject / (de)activate a product (Administration / Admin). */
+export function useChangeProductStatus() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, price, currency }: { id: string; price: number; currency: string }) =>
-      apiRequest<ProductPrice>(`/products/${id}/price`, {
-        method: 'POST',
-        body: { price, currency },
+    mutationFn: ({ id, status, remarks }: { id: string; status: string; remarks?: string }) =>
+      apiRequest<Product>(`/products/${id}/status`, {
+        method: 'PATCH',
+        body: { status, remarks },
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['products'] }),
   });
 }
 
-export function useAdjustInventory() {
+/** Suggested selling price = avg(vendor offers) + transport markup. */
+export function usePriceSuggestion(productId: string | null) {
+  return useQuery({
+    queryKey: ['price-suggestion', productId],
+    queryFn: () => apiRequest<PriceSuggestion>(`/products/${productId}/price-suggestion`),
+    enabled: Boolean(productId),
+  });
+}
+
+/** Set the selling price (omit `price` to auto-compute, provide it to override). */
+export function useSetPrice() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      id,
-      availableQuantity,
-      minimumQuantity,
-    }: {
-      id: string;
-      availableQuantity?: number;
-      minimumQuantity?: number;
-    }) => {
-      const body: Record<string, number> = {};
-      if (availableQuantity !== undefined) body.availableQuantity = availableQuantity;
-      if (minimumQuantity !== undefined) body.minimumQuantity = minimumQuantity;
-      return apiRequest<Inventory>(`/products/${id}/inventory`, { method: 'PATCH', body });
+    mutationFn: ({ id, price, currency }: { id: string; price?: number; currency: string }) => {
+      const body: Record<string, string | number> = { currency };
+      if (price !== undefined) body.price = price;
+      return apiRequest<ProductPrice>(`/products/${id}/price`, { method: 'POST', body });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['products'] }),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ['products'] });
+      void queryClient.invalidateQueries({ queryKey: ['price-suggestion', variables.id] });
+    },
   });
 }

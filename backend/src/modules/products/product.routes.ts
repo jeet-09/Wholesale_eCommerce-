@@ -11,12 +11,14 @@ import {
 import type { UuidParam } from '../../common/schemas';
 import type { ProductController } from './product.controller';
 import {
+  changeProductStatusSchema,
   createProductSchema,
   listProductsQuerySchema,
   productResponseSchema,
   updateProductSchema,
 } from './product.schemas';
 import type {
+  ChangeProductStatusInput,
   CreateProductInput,
   ListProductsQueryInput,
   UpdateProductInput,
@@ -60,7 +62,7 @@ export function registerProductRoutes(app: FastifyInstance, controller: ProductC
     {
       schema: {
         tags: ['products'],
-        summary: 'Create a product (with initial price and stock)',
+        summary: 'Create a master-catalog product (Admin only)',
         security: [{ bearerAuth: [] }],
         body: createProductSchema,
         response: { 201: successEnvelope(productResponseSchema), ...commonErrorResponses },
@@ -75,7 +77,7 @@ export function registerProductRoutes(app: FastifyInstance, controller: ProductC
     {
       schema: {
         tags: ['products'],
-        summary: 'Update a product',
+        summary: 'Update a master-catalog product (Admin only)',
         security: [{ bearerAuth: [] }],
         params: uuidParamSchema,
         body: updateProductSchema,
@@ -84,6 +86,22 @@ export function registerProductRoutes(app: FastifyInstance, controller: ProductC
       preHandler: [app.authenticate, app.authorize(PERMISSIONS.PRODUCT_UPDATE)],
     },
     controller.update,
+  );
+
+  router.patch<{ Params: UuidParam; Body: ChangeProductStatusInput }>(
+    '/products/:id/status',
+    {
+      schema: {
+        tags: ['products'],
+        summary: 'Approve / reject / (de)activate a product (Administration / Admin)',
+        security: [{ bearerAuth: [] }],
+        params: uuidParamSchema,
+        body: changeProductStatusSchema,
+        response: { 200: successEnvelope(productResponseSchema), ...commonErrorResponses },
+      },
+      preHandler: [app.authenticate, app.authorize(PERMISSIONS.PRODUCT_REVIEW)],
+    },
+    controller.changeStatus,
   );
 
   router.delete<{ Params: UuidParam }>(

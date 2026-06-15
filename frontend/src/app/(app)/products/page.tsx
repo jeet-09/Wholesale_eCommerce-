@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { useAddToCart } from '@/hooks/use-cart';
 import { useProducts } from '@/hooks/use-products';
 import { ApiError } from '@/lib/api';
-import { useAuthStore } from '@/lib/auth-store';
+import { useAuthz } from '@/lib/authz';
 import { formatMoney, formatQuantity, titleCase } from '@/lib/format';
 import type { Product } from '@/lib/types';
 
@@ -19,8 +19,8 @@ function ProductCard({ product, canBuy }: { product: Product; canBuy: boolean })
   const [quantity, setQuantity] = useState('1');
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; message: string } | null>(null);
 
-  const sellable = product.inventory?.sellableQuantity ?? null;
-  const outOfStock = sellable !== null && Number(sellable) <= 0;
+  const outOfStock = !product.supply.inStock;
+  const price = product.sellingPrice;
 
   const onAdd = () => {
     const qty = Number(quantity);
@@ -47,7 +47,7 @@ function ProductCard({ product, canBuy }: { product: Product; canBuy: boolean })
         <div className="mb-2 flex items-start justify-between gap-2">
           <div>
             <h3 className="font-semibold text-gray-900">{product.name}</h3>
-            <p className="text-xs text-gray-500">{product.vendorName ?? 'Unknown vendor'}</p>
+            <p className="text-xs text-gray-500">{product.categoryName ?? 'Uncategorised'}</p>
           </div>
           <StatusBadge status={outOfStock ? 'OUT_OF_STOCK' : product.status} />
         </div>
@@ -57,14 +57,16 @@ function ProductCard({ product, canBuy }: { product: Product; canBuy: boolean })
         <dl className="mb-3 grid grid-cols-2 gap-y-1 text-sm">
           <dt className="text-gray-500">Price</dt>
           <dd className="text-right font-medium text-gray-900">
-            {product.currentPrice
-              ? `${formatMoney(product.currentPrice.price, product.currentPrice.currency)} / ${titleCase(product.unit)}`
+            {price
+              ? `${formatMoney(price.price, price.currency)} / ${titleCase(product.unit)}`
               : '—'}
           </dd>
           <dt className="text-gray-500">Available</dt>
           <dd className="text-right text-gray-700">
-            {formatQuantity(sellable)} {titleCase(product.unit)}
+            {formatQuantity(product.supply.totalAvailableQuantity)} {titleCase(product.unit)}
           </dd>
+          <dt className="text-gray-500">Suppliers</dt>
+          <dd className="text-right text-gray-700">{product.supply.vendorCount}</dd>
           <dt className="text-gray-500">SKU</dt>
           <dd className="text-right text-gray-700">{product.sku}</dd>
         </dl>
@@ -83,7 +85,7 @@ function ProductCard({ product, canBuy }: { product: Product; canBuy: boolean })
               />
               <Button
                 onClick={onAdd}
-                disabled={addToCart.isPending || outOfStock || !product.currentPrice}
+                disabled={addToCart.isPending || outOfStock || !price}
                 className="flex-1"
               >
                 {outOfStock ? 'Out of stock' : 'Add to cart'}
@@ -106,8 +108,8 @@ function ProductCard({ product, canBuy }: { product: Product; canBuy: boolean })
 }
 
 export default function ProductsPage() {
-  const context = useAuthStore((s) => s.context);
-  const canBuy = Boolean(context?.restaurantId);
+  const authz = useAuthz();
+  const canBuy = authz.isRestaurant;
 
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -117,7 +119,7 @@ export default function ProductsPage() {
     page,
     pageSize: PAGE_SIZE,
     search: search || undefined,
-    status: 'ACTIVE',
+    status: 'APPROVED',
     sort: '-createdAt',
   });
 
@@ -128,6 +130,24 @@ export default function ProductsPage() {
   };
 
   const pagination = data?.pagination;
+
+  // The buying storefront is restaurant-only (project-working.md → Restaurant
+  // Portal). Vendors manage Pricing & Inventory; staff manage the Catalog.
+  if (!canBuy) {
+    return (
+      <Card>
+        <CardBody className="py-12 text-center">
+          <h1 className="text-xl font-semibold text-gray-900">Product storefront</h1>
+          <p className="mx-auto mt-2 max-w-md text-sm text-gray-500">
+            Browsing and ordering products is available to restaurant accounts. Vendors set their
+            price and stock under <span className="font-medium">Pricing &amp; Inventory</span>;
+            Admin and Administration manage the master catalog under{' '}
+            <span className="font-medium">Catalog</span>.
+          </p>
+        </CardBody>
+      </Card>
+    );
+  }
 
   return (
     <div>

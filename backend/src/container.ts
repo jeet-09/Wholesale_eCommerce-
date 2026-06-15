@@ -49,9 +49,9 @@ import { ProductPriceRepository } from './modules/pricing/price.repository';
 import { PricingService } from './modules/pricing/price.service';
 import { PricingController } from './modules/pricing/price.controller';
 
-import { InventoryRepository } from './modules/inventory/inventory.repository';
-import { InventoryService } from './modules/inventory/inventory.service';
-import { InventoryController } from './modules/inventory/inventory.controller';
+import { OfferRepository } from './modules/vendor-offers/offer.repository';
+import { OfferService } from './modules/vendor-offers/offer.service';
+import { OfferController } from './modules/vendor-offers/offer.controller';
 
 import { CartItemRepository, CartRepository } from './modules/cart/cart.repository';
 import { CartService } from './modules/cart/cart.service';
@@ -61,6 +61,22 @@ import { OrderRepository } from './modules/orders/order.repository';
 import { OutboxRepository } from './modules/orders/outbox.repository';
 import { OrderService } from './modules/orders/order.service';
 import { OrderController } from './modules/orders/order.controller';
+
+import { PaymentRepository } from './modules/payments/payment.repository';
+import { PaymentService } from './modules/payments/payment.service';
+import { PaymentController } from './modules/payments/payment.controller';
+
+import { PerformanceRepository } from './modules/vendor-performance/performance.repository';
+import { PerformanceService } from './modules/vendor-performance/performance.service';
+import { PerformanceController } from './modules/vendor-performance/performance.controller';
+
+import { CallRepository } from './modules/vendor-calls/call.repository';
+import { CallService } from './modules/vendor-calls/call.service';
+import { CallController } from './modules/vendor-calls/call.controller';
+
+import { AnalyticsRepository } from './modules/analytics/analytics.repository';
+import { AnalyticsService } from './modules/analytics/analytics.service';
+import { AnalyticsController } from './modules/analytics/analytics.controller';
 
 import { SettingRepository } from './modules/settings/setting.repository';
 import { NotificationRepository } from './modules/notifications/notification.repository';
@@ -86,9 +102,13 @@ export interface Controllers {
   categories: CategoryController;
   products: ProductController;
   pricing: PricingController;
-  inventory: InventoryController;
+  offers: OfferController;
   cart: CartController;
   orders: OrderController;
+  payments: PaymentController;
+  performance: PerformanceController;
+  calls: CallController;
+  analytics: AnalyticsController;
   notifications: NotificationController;
   audit: AuditController;
 }
@@ -121,11 +141,15 @@ export function buildContainer(deps: ContainerDeps): Container {
   const categoryRepository = new CategoryRepository(db);
   const productRepository = new ProductRepository(db);
   const priceRepository = new ProductPriceRepository(db);
-  const inventoryRepository = new InventoryRepository(db);
+  const offerRepository = new OfferRepository(db);
   const cartRepository = new CartRepository(db);
   const cartItemRepository = new CartItemRepository(db);
   const orderRepository = new OrderRepository(db);
   const outboxRepository = new OutboxRepository(db);
+  const paymentRepository = new PaymentRepository(db);
+  const performanceRepository = new PerformanceRepository(db);
+  const callRepository = new CallRepository(db);
+  const analyticsRepository = new AnalyticsRepository(db);
   const settingRepository = new SettingRepository(db);
   const notificationRepository = new NotificationRepository(db);
   const idempotencyRepository = new IdempotencyRepository(db);
@@ -165,14 +189,18 @@ export function buildContainer(deps: ContainerDeps): Container {
   const productService = new ProductService(
     db,
     productRepository,
-    priceRepository,
-    inventoryRepository,
     categoryRepository,
     auditService,
     logger,
   );
-  const pricingService = new PricingService(db, priceRepository, productRepository, auditService);
-  const inventoryService = new InventoryService(inventoryRepository, productRepository, auditService);
+  const pricingService = new PricingService(
+    db,
+    priceRepository,
+    productRepository,
+    offerRepository,
+    auditService,
+  );
+  const offerService = new OfferService(db, offerRepository, productRepository, auditService);
   const cartService = new CartService(
     db,
     cartRepository,
@@ -184,12 +212,36 @@ export function buildContainer(deps: ContainerDeps): Container {
     db,
     orderRepository,
     cartRepository,
-    inventoryRepository,
+    offerRepository,
+    performanceRepository,
+    vendorRepository,
     outboxRepository,
     settingRepository,
     auditService,
     logger,
   );
+  const paymentService = new PaymentService(
+    db,
+    paymentRepository,
+    orderRepository,
+    orderService,
+    auditService,
+    logger,
+  );
+  const performanceService = new PerformanceService(
+    performanceRepository,
+    vendorRepository,
+    auditService,
+  );
+  const callService = new CallService(
+    db,
+    callRepository,
+    orderRepository,
+    vendorRepository,
+    performanceRepository,
+    auditService,
+  );
+  const analyticsService = new AnalyticsService(analyticsRepository);
   const notificationService = new NotificationService(notificationRepository);
 
   // --- Controllers ---------------------------------------------------------
@@ -202,9 +254,13 @@ export function buildContainer(deps: ContainerDeps): Container {
     categories: new CategoryController(categoryService),
     products: new ProductController(productService),
     pricing: new PricingController(pricingService),
-    inventory: new InventoryController(inventoryService),
+    offers: new OfferController(offerService),
     cart: new CartController(cartService),
     orders: new OrderController(orderService),
+    payments: new PaymentController(paymentService),
+    performance: new PerformanceController(performanceService),
+    calls: new CallController(callService),
+    analytics: new AnalyticsController(analyticsService),
     notifications: new NotificationController(notificationService),
     audit: new AuditController(auditService),
   };
