@@ -4,16 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "dev:restaurant": "PORTAL=restaurant PORT=3000 next dev",
-    "dev:admin": "PORTAL=admin PORT=3001 next dev",
-    "dev:vendor": "PORTAL=vendor PORT=3002 next dev",
-    "dev:ops": "PORTAL=ops PORT=3003 next dev",
     "build": "next build",
     "start": "next start",
-    "start:restaurant": "PORTAL=restaurant PORT=3000 next start",
-    "start:admin": "PORTAL=admin PORT=3001 next start",
-    "start:vendor": "PORTAL=vendor PORT=3002 next start",
-    "start:ops": "PORTAL=ops PORT=3003 next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
   },

@@ -13,12 +13,13 @@
 
 This document defines the complete database architecture for the platform.
 
-The database must support these portals from day one:
+The database must support these role experiences from day one (all served by a
+single role-based web app):
 
-* Restaurant Portal
-* Vendor Portal
-* Operations Portal
-* Admin Portal
+* Restaurant
+* Vendor
+* Operations
+* Admin
 
 …while remaining extensible (new tables only, never redesigns) for:
 

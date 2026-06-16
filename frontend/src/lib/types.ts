@@ -189,10 +189,14 @@ export interface VendorPerformance {
   averageRating: number | null;
 }
 
+export type MetricFormat = 'number' | 'currency' | 'percent' | 'rating';
+
 export interface DashboardMetric {
   key: string;
   label: string;
-  value: number;
+  value: number | null;
+  format: MetricFormat;
+  hint?: string;
 }
 
 export interface DashboardStatusCount {
@@ -201,7 +205,7 @@ export interface DashboardStatusCount {
 }
 
 export interface Dashboard {
-  scope: 'admin' | 'vendor' | 'restaurant';
+  scope: 'admin' | 'operations' | 'vendor' | 'restaurant';
   generatedAt: string;
   metrics: DashboardMetric[];
   ordersByStatus: DashboardStatusCount[];

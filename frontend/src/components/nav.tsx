@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
-import { usePortal } from '@/components/portal-provider';
 import { useLogout } from '@/hooks/use-auth';
 import { useAuthStore } from '@/lib/auth-store';
 import { PERMISSIONS, useAuthz } from '@/lib/authz';
@@ -26,11 +25,20 @@ function NavLink({ href, label, active }: { href: string; label: string; active:
 
 export function Nav() {
   const pathname = usePathname();
-  const portal = usePortal();
   const user = useAuthStore((s) => s.user);
   const context = useAuthStore((s) => s.context);
   const logout = useLogout();
   const authz = useAuthz();
+
+  const roleLabel = authz.isAdmin
+    ? 'Admin'
+    : authz.isStaff
+      ? 'Operations'
+      : authz.isVendor
+        ? 'Vendor'
+        : authz.isRestaurant
+          ? 'Restaurant'
+          : (context?.roles?.[0] ?? '');
 
   // The storefront (browse + add to cart) is a Restaurant-only experience.
   // Vendors interact with products only through Pricing & Inventory (offers);
@@ -56,11 +64,13 @@ export function Nav() {
     <header className="border-b border-gray-200 bg-white">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
         <div className="flex items-center gap-6">
-          <Link href={portal.homePath} className="flex items-center gap-2 text-lg font-bold text-brand-700">
+          <Link href="/dashboard" className="flex items-center gap-2 text-lg font-bold text-brand-700">
             Procure<span className="text-gray-900">Hub</span>
-            <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', portal.badgeClass)}>
-              {portal.label}
-            </span>
+            {roleLabel && (
+              <span className="rounded-full bg-brand-100 px-2 py-0.5 text-xs font-medium text-brand-700">
+                {roleLabel}
+              </span>
+            )}
           </Link>
           <nav className="flex items-center gap-1">
             {links.map((link) => (

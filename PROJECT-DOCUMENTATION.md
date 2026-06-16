@@ -92,12 +92,12 @@ Wholesale_eCommerce-/
 │       ├── middleware/          # auth (authenticate/authorize), idempotency
 │       ├── utils/               # decimal maths, order-number formatting
 │       └── modules/             # One folder per business domain (see §9)
-├── frontend/                    # Next.js multi-portal web app
+├── frontend/                    # Next.js role-based web app (single deployment)
 │   └── src/
-│       ├── app/                 # App Router pages (login, register, (app)/* portal pages)
-│       ├── components/          # UI primitives, nav, auth-guard, portal provider
+│       ├── app/                 # App Router pages (login, register, (app)/* role pages)
+│       ├── components/          # UI primitives, nav, auth-guard
 │       ├── hooks/               # React Query hooks (one file per domain)
-│       └── lib/                 # api client, auth store, authz, portal config, types, format
+│       └── lib/                 # api client, auth store, authz, types, format
 ├── docker-compose.yml
 ├── README.md / OVERVIEW.md / DATABASE.md / TECHNICAL-DETAILS.MD / RULES.md / SETUP.md
 └── PROJECT-DOCUMENTATION.md     # (this file)
@@ -494,19 +494,19 @@ All routes are mounted under the prefix **`/api/v1`**. Interactive docs: **`/doc
 
 ## 10. Frontend architecture
 
-A **single Next.js app** that is re-branded per deployment into four **portals** via
-the `PORTAL` env var (`restaurant`, `vendor`, `admin`, `ops`). The same image runs on
-different ports as different portals (see `frontend/src/lib/portal.ts`).
+A **single Next.js app** (one deployment, `http://localhost:3000`) whose UI adapts to
+the signed-in user. There are no per-role ports or builds: the nav and pages are gated
+by the user's roles/permissions via `useAuthz()` (`frontend/src/lib/authz.ts`), and the
+backend enforces authorization independently (RBAC + ownership). The UI gating is UX,
+not the security boundary.
 
-**Portal ↔ role enforcement.** Because every portal is the same app, `PortalGuard`
-(`components/portal-guard.tsx`, wrapping the authenticated `(app)` layout) blocks
-accounts that don't belong to the active portal — a Restaurant account cannot use the
-Vendor portal (and vice-versa); Admin may also use the Operations portal. A mismatched
-sign-in sees a "wrong portal" screen with a link to the correct one instead of another
-role's UI. Self-service **registration** is likewise fixed to the portal's role
-(Restaurant portal → buyer accounts, Vendor portal → seller accounts); staff accounts
-are provisioned by an administrator. Default local ports: Restaurant `:3000`,
-Admin `:3001`, Vendor `:3002`, Operations `:3003`.
+**Role-based rendering.** After login everyone lands on `/dashboard` (role-scoped).
+The storefront (`/products`) + cart are restaurant-only; vendors get
+**Pricing & Inventory** (`/offers`); Admin/Operations get the Catalog, payments queue,
+and vendor scorecards. Self-service **registration** lets the user pick Restaurant or
+Vendor; staff (Operations/Admin) accounts are provisioned by an administrator. To run
+multiple roles at once during a demo, use separate browser profiles (each keeps its
+own login).
 
 ### Key building blocks (`frontend/src/lib`)
 
@@ -612,11 +612,7 @@ npm run dev                   # API on http://localhost:4000 (docs at /docs)
 ```bash
 cd frontend
 npm install
-# Run any/all portals (different ports):
-npm run dev:restaurant   # http://localhost:3000
-npm run dev:admin        # http://localhost:3001
-npm run dev:vendor       # http://localhost:3002
-npm run dev:ops          # http://localhost:3003
+npm run dev              # web app on http://localhost:3000 (log in as any role)
 ```
 
 ### Or everything via Docker
@@ -652,7 +648,7 @@ and the `/dashboard` metrics.
 - **Unit tests** — backend uses **Vitest**; the order service is covered with injected
   fakes (empty-cart guard, placement → `PENDING_PAYMENT`, assignment failing when the
   vendor doesn't supply an item, state-machine transitions).
-- **Build** — `next build` produces all portal routes successfully.
+- **Build** — `next build` produces all routes successfully.
 - **Schema** — `npx prisma validate` + generated client kept in sync with migrations.
 
 Run them:
@@ -707,5 +703,5 @@ Because every layer is consistent, new modules slot in without touching unrelate
 *This document reflects the implemented codebase: a master-catalog procurement
 platform with vendor offers, computed pricing, a 30% advance-payment gate, manual
 vendor assignment with stock reservation, a strict order state machine, and vendor
-performance tracking — exposed through a typed Fastify API and a permission-aware
-multi-portal Next.js frontend.*
+performance tracking — exposed through a typed Fastify API and a single,
+permission-aware role-based Next.js frontend.*

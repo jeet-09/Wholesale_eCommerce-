@@ -123,19 +123,12 @@ This will, in order:
 1. start **Postgres** and wait until healthy,
 2. run the **migrate** one-shot (applies migrations → raw SQL constraints → seed),
 3. start the **backend** on http://localhost:4000,
-4. start **four role portals** (same image, different `PORTAL` env), one per port:
-   - Restaurant → http://localhost:3000
-   - Admin      → http://localhost:3001
-   - Vendor     → http://localhost:3002
-   - Operations → http://localhost:3003
-
-> Each portal is a separate origin, so log in on each one independently — you can
-> be a restaurant on :3000 and a vendor on :3002 **at the same time** and drive a
-> full order back-and-forth. See [§7 Portals](#7-portals-multiple-roles-at-once).
+4. start the **web app** on http://localhost:3000 — a single role-based UI that
+   adapts to whoever signs in. See [§7 Roles](#7-roles-one-app-many-roles).
 
 > Compose reads `backend/.env`. You can tune ports/credentials with a root `.env`
 > (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `BACKEND_PORT`,
-> `RESTAURANT_PORT`, `ADMIN_PORT`, `VENDOR_PORT`, `OPS_PORT`).
+> `FRONTEND_PORT`).
 
 ### Option B — Manual (no Docker)
 
@@ -151,16 +144,10 @@ npm run db:constraints          # apply partial indexes, CHECK constraints, audi
 npm run db:seed                 # roles, permissions, payment methods, settings + demo data
 npm run dev                     # API on http://localhost:4000  (Swagger at /docs)
 
-# 2. Frontend (second terminal) — pick the portal you want
+# 2. Frontend (second terminal)
 cd frontend
 npm install
-npm run dev                     # restaurant portal on http://localhost:3000
-
-# Or run several portals at once, each in its own terminal:
-npm run dev:restaurant          # http://localhost:3000
-npm run dev:admin               # http://localhost:3001
-npm run dev:vendor              # http://localhost:3002
-npm run dev:ops                 # http://localhost:3003
+npm run dev                     # web app on http://localhost:3000
 ```
 
 > First time only: the initial migration lives in
@@ -179,10 +166,7 @@ npm run db:setup
 - API health: http://localhost:4000/health → `{ "status": "ok" }`
 - API readiness (checks DB): http://localhost:4000/ready → `{ "status": "ready" }`
 - API docs (OpenAPI/Swagger UI): http://localhost:4000/docs
-- Restaurant portal: http://localhost:3000
-- Admin portal: http://localhost:3001
-- Vendor portal: http://localhost:3002
-- Operations portal: http://localhost:3003
+- Web app: http://localhost:3000 (log in as any role)
 
 ---
 
@@ -203,36 +187,33 @@ restaurant account can immediately browse, add to cart, and place an order.
 
 ---
 
-## 7) Portals (multiple roles at once)
+## 7) Roles (one app, many roles)
 
-The web app is shipped as **one image** that is branded for a single role at
-runtime via the `PORTAL` env var. Docker Compose starts four instances so each
-role gets its own port:
+The web app is a **single role-based UI** at http://localhost:3000. The interface
+adapts to the signed-in user's roles/permissions — there is no separate portal or
+port per role:
 
-| Portal      | Port | `PORTAL` value | Pre-filled demo login        |
-|-------------|------|----------------|------------------------------|
-| Restaurant  | 3000 | `restaurant`   | `restaurant@demo.local`      |
-| Admin       | 3001 | `admin`        | `admin@procurement.local`    |
-| Vendor      | 3002 | `vendor`       | `vendor@demo.local`          |
-| Operations  | 3003 | `ops`          | `ops@procurement.local`      |
+| Role | Sees |
+|------|------|
+| Restaurant | Dashboard, Products storefront, Cart, Orders |
+| Vendor | Dashboard, Pricing & Inventory (offers), assigned Orders |
+| Operations | Dashboard, Catalog, Offer review, Orders, Payments, Vendor scorecards |
+| Admin | Everything Operations has, plus platform analytics |
 
-**Why ports (not just tabs):** your login token is stored per-origin in the
-browser. Different ports = different origins = independent sessions, so you can be
-signed in as **all four roles at the same time**. Server data (catalog, carts,
-orders) lives in the backend DB and is shared across every portal.
+**Security:** authorization is always enforced **server-side** (RBAC + ownership
+checks on the API). The role-based UI only decides what to *show*; it is not the
+security boundary.
 
-**Typical end-to-end demo:**
-1. On **:3000** (Restaurant) browse Products → add to cart → place an order.
-2. On **:3002** (Vendor) open Orders → accept / advance the order's status.
-3. Watch the order update on **:3000** when you refresh — same backend, same data.
+**Typical end-to-end demo (one browser):**
+1. Sign in as `restaurant@demo.local` → browse Products → add to cart → place an order.
+2. Sign out, sign in as `ops@procurement.local` → verify payment → assign a vendor.
+3. Sign out, sign in as `vendor@demo.local` → accept and advance the order.
 
-> The role-specific UI (e.g. Cart only for restaurants, status controls for
-> vendors) is driven by **who you log in as**, not by the port — the port just
-> brands the portal and pre-fills the matching demo account. You can log into any
-> portal with any account.
+> Tip: to drive multiple roles *simultaneously*, open separate browser profiles or
+> incognito windows (each keeps its own login). Server data (catalog, carts,
+> orders) lives in the backend DB and is shared across every session.
 
-To change a port without touching compose, set it in a root `.env`:
-`RESTAURANT_PORT`, `ADMIN_PORT`, `VENDOR_PORT`, `OPS_PORT`.
+To change the port without touching compose, set `FRONTEND_PORT` in a root `.env`.
 
 ---
 

@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { usePortal } from '@/components/portal-provider';
 import { Card, CardBody } from '@/components/ui/card';
 import { Input, Label } from '@/components/ui/input';
 import { useLogin } from '@/hooks/use-auth';
@@ -14,15 +13,14 @@ import { useAuthStore } from '@/lib/auth-store';
 
 export default function LoginPage() {
   const router = useRouter();
-  const portal = usePortal();
   const token = useAuthStore((s) => s.accessToken);
   const login = useLogin();
-  const [email, setEmail] = useState(portal.demoEmail);
-  const [password, setPassword] = useState('Password123!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   useEffect(() => {
-    if (token) router.replace(portal.homePath);
-  }, [token, router, portal.homePath]);
+    if (token) router.replace('/dashboard');
+  }, [token, router]);
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,11 +36,7 @@ export default function LoginPage() {
           <h1 className="text-2xl font-bold text-brand-700">
             Procure<span className="text-gray-900">Hub</span>
           </h1>
-          <span
-            className={`mt-2 inline-block rounded-full px-3 py-1 text-xs font-medium ${portal.badgeClass}`}
-          >
-            {portal.label}
-          </span>
+          <p className="mt-1 text-sm text-gray-500">B2B restaurant procurement platform</p>
         </div>
         <Card>
           <CardBody className="p-6">
@@ -87,7 +81,7 @@ export default function LoginPage() {
         </Card>
         <div className="mt-4 rounded-md border border-gray-200 bg-white p-3 text-xs text-gray-500">
           <p className="font-medium text-gray-700">Demo accounts (password: Password123!)</p>
-          <p>restaurant@demo.local · vendor@demo.local · admin@procurement.local</p>
+          <p>restaurant@demo.local · vendor@demo.local · ops@procurement.local · admin@procurement.local</p>
         </div>
       </div>
     </div>

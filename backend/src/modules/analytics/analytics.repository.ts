@@ -1,4 +1,4 @@
-import type { Prisma, OrderStatus } from '@prisma/client';
+import type { Prisma, OrderStatus, VendorPerformance } from '@prisma/client';
 
 import { BaseRepository } from '../../database/base.repository';
 
@@ -23,6 +23,19 @@ export class AnalyticsRepository extends BaseRepository {
 
   countOrders(where: Prisma.OrderWhereInput): Promise<number> {
     return this.db.order.count({ where: { ...where, ...this.notDeleted } });
+  }
+
+  /** Sum of order `totalAmount` (money) for the filter, as a plain number. */
+  async sumOrderTotal(where: Prisma.OrderWhereInput): Promise<number> {
+    const result = await this.db.order.aggregate({
+      where: { ...where, ...this.notDeleted },
+      _sum: { totalAmount: true },
+    });
+    return result._sum.totalAmount ? result._sum.totalAmount.toNumber() : 0;
+  }
+
+  vendorPerformance(vendorId: string): Promise<VendorPerformance | null> {
+    return this.db.vendorPerformance.findUnique({ where: { vendorId } });
   }
 
   countOrdersInStatuses(
