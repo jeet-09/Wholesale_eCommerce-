@@ -16,6 +16,7 @@ import {
   completeOrderSchema,
   listOrdersQuerySchema,
   orderResponseSchema,
+  overrideStatusSchema,
   placeOrderSchema,
   rejectOrderSchema,
   updateFulfilmentSchema,
@@ -26,6 +27,7 @@ import type {
   CancelOrderInput,
   CompleteOrderInput,
   ListOrdersQueryInput,
+  OverrideStatusInput,
   PlaceOrderInput,
   RejectOrderInput,
   UpdateFulfilmentInput,
@@ -42,7 +44,7 @@ export function registerOrderRoutes(app: FastifyInstance, controller: OrderContr
         tags: ['orders'],
         summary: 'Place an order from the active cart',
         description:
-          'Requires an `Idempotency-Key` header. Snapshots current selling prices, computes totals + the 30% advance, and creates the order in PENDING_PAYMENT. No vendor is assigned yet.',
+          'Requires an `Idempotency-Key` header and a `requestedDeliveryDate` (today..+20 days; today adds a same-day surcharge). Snapshots current selling prices, computes totals + the 30% advance, and creates the order in PENDING_PAYMENT. No vendor is assigned yet.',
         security: [{ bearerAuth: [] }],
         body: placeOrderSchema,
         response: { 201: successEnvelope(orderResponseSchema), ...commonErrorResponses },
@@ -121,7 +123,9 @@ export function registerOrderRoutes(app: FastifyInstance, controller: OrderContr
     {
       schema: {
         tags: ['orders'],
-        summary: 'Vendor advances fulfilment (processing → ready → delivered)',
+        summary: 'Vendor advances fulfilment (processing → ready → out for delivery → delivered)',
+        description:
+          'Dispatching (OUT_FOR_DELIVERY) records the delivery contact phone, an optional dispatch note, and the actual quantity sent per item when stock is short.',
         security: [{ bearerAuth: [] }],
         params: uuidParamSchema,
         body: updateFulfilmentSchema,
@@ -137,8 +141,9 @@ export function registerOrderRoutes(app: FastifyInstance, controller: OrderContr
     {
       schema: {
         tags: ['orders'],
-        summary: 'Mark a delivered order COMPLETED (Administration)',
-        description: 'Fulfils reserved stock and updates the vendor performance scorecard.',
+        summary: 'Confirm a delivered order COMPLETED + review (restaurant / Administration)',
+        description:
+          'The owning restaurant confirms receipt and leaves a 1-5★ review; Administration may confirm as a fallback. Fulfils reserved stock and updates the vendor performance scorecard.',
         security: [{ bearerAuth: [] }],
         params: uuidParamSchema,
         body: completeOrderSchema,
@@ -147,6 +152,24 @@ export function registerOrderRoutes(app: FastifyInstance, controller: OrderContr
       preHandler: [app.authenticate, app.authorize(PERMISSIONS.ORDER_COMPLETE)],
     },
     controller.complete,
+  );
+
+  router.patch<{ Params: UuidParam; Body: OverrideStatusInput }>(
+    '/orders/:id/status',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: 'Override an order status (Admin super-power)',
+        description:
+          'Admin-only out-of-band correction: force an order to (almost) any lifecycle status, bypassing the normal state machine. Records full status history + an audit entry and releases reserved stock when leaving a reserved state. Does not pick a vendor — use Assign to route to a vendor.',
+        security: [{ bearerAuth: [] }],
+        params: uuidParamSchema,
+        body: overrideStatusSchema,
+        response: { 200: successEnvelope(orderResponseSchema), ...commonErrorResponses },
+      },
+      preHandler: [app.authenticate, app.authorize(PERMISSIONS.ORDER_OVERRIDE)],
+    },
+    controller.overrideStatus,
   );
 
   router.post<{ Params: UuidParam; Body: RejectOrderInput }>(

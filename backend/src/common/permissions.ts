@@ -17,6 +17,7 @@ export const PERMISSIONS = {
   USER_VIEW: 'user:view',
   USER_UPDATE: 'user:update',
   USER_SUSPEND: 'user:suspend',
+  USER_RESET_PASSWORD: 'user:reset-password',
 
   ORGANIZATION_CREATE: 'organization:create',
   ORGANIZATION_VIEW: 'organization:view',
@@ -29,6 +30,7 @@ export const PERMISSIONS = {
   MEMBER_REMOVE: 'member:remove',
 
   VENDOR_VIEW: 'vendor:view',
+  VENDOR_CREATE: 'vendor:create',
   VENDOR_UPDATE: 'vendor:update',
   VENDOR_MANAGE: 'vendor:manage',
 
@@ -66,6 +68,8 @@ export const PERMISSIONS = {
   ORDER_REVIEW: 'order:review',
   ORDER_ASSIGN: 'order:assign',
   ORDER_COMPLETE: 'order:complete',
+  // Admin-only: force an order to any status (out-of-band correction).
+  ORDER_OVERRIDE: 'order:override',
 
   PAYMENT_SUBMIT: 'payment:submit',
   PAYMENT_VIEW: 'payment:view',
@@ -107,7 +111,8 @@ const VENDOR_PERMISSIONS: PermissionKey[] = [
   PERMISSIONS.NOTIFICATION_VIEW,
 ];
 
-// Restaurant (buyer): browses approved catalog, orders, pays advance.
+// Restaurant (buyer): browses approved catalog, orders, pays advance, and
+// confirms + reviews its own delivered orders.
 const RESTAURANT_PERMISSIONS: PermissionKey[] = [
   PERMISSIONS.RESTAURANT_VIEW,
   PERMISSIONS.RESTAURANT_UPDATE,
@@ -118,6 +123,7 @@ const RESTAURANT_PERMISSIONS: PermissionKey[] = [
   PERMISSIONS.ORDER_CREATE,
   PERMISSIONS.ORDER_VIEW,
   PERMISSIONS.ORDER_CANCEL,
+  PERMISSIONS.ORDER_COMPLETE,
   PERMISSIONS.PAYMENT_SUBMIT,
   PERMISSIONS.PAYMENT_VIEW,
   PERMISSIONS.NOTIFICATION_VIEW,

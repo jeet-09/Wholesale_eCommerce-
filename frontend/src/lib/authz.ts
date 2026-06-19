@@ -18,11 +18,17 @@ export const PERMISSIONS = {
   ORDER_ASSIGN: 'order:assign',
   ORDER_REVIEW: 'order:review',
   ORDER_COMPLETE: 'order:complete',
+  ORDER_OVERRIDE: 'order:override',
   PAYMENT_VERIFY: 'payment:verify',
   CALL_CREATE: 'call:create',
   PERFORMANCE_VIEW: 'performance:view',
   PERFORMANCE_RATE: 'performance:rate',
   ANALYTICS_VIEW: 'analytics:view',
+  USER_VIEW: 'user:view',
+  USER_CREATE: 'user:create',
+  USER_SUSPEND: 'user:suspend',
+  USER_RESET_PASSWORD: 'user:reset-password',
+  VENDOR_CREATE: 'vendor:create',
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

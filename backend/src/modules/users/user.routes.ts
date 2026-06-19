@@ -13,10 +13,16 @@ import type { UserController } from './user.controller';
 import {
   createUserSchema,
   listUsersQuerySchema,
+  setPasswordSchema,
   updateUserSchema,
   userResponseSchema,
 } from './user.schemas';
-import type { CreateUserInput, ListUsersQueryInput, UpdateUserInput } from './user.schemas';
+import type {
+  CreateUserInput,
+  ListUsersQueryInput,
+  SetPasswordInput,
+  UpdateUserInput,
+} from './user.schemas';
 
 export function registerUserRoutes(app: FastifyInstance, controller: UserController): void {
   const router = app.withTypeProvider<ZodTypeProvider>();
@@ -95,5 +101,36 @@ export function registerUserRoutes(app: FastifyInstance, controller: UserControl
       preHandler: [app.authenticate, app.authorize(PERMISSIONS.USER_SUSPEND)],
     },
     controller.suspend,
+  );
+
+  router.post<{ Params: UuidParam }>(
+    '/users/:id/reactivate',
+    {
+      schema: {
+        tags: ['users'],
+        summary: 'Reactivate a suspended user',
+        security: [{ bearerAuth: [] }],
+        params: uuidParamSchema,
+        response: { 200: successEnvelope(userResponseSchema), ...commonErrorResponses },
+      },
+      preHandler: [app.authenticate, app.authorize(PERMISSIONS.USER_SUSPEND)],
+    },
+    controller.reactivate,
+  );
+
+  router.post<{ Params: UuidParam; Body: SetPasswordInput }>(
+    '/users/:id/password',
+    {
+      schema: {
+        tags: ['users'],
+        summary: "Set a user's password (admin)",
+        security: [{ bearerAuth: [] }],
+        params: uuidParamSchema,
+        body: setPasswordSchema,
+        response: { 200: successEnvelope(userResponseSchema), ...commonErrorResponses },
+      },
+      preHandler: [app.authenticate, app.authorize(PERMISSIONS.USER_RESET_PASSWORD)],
+    },
+    controller.setPassword,
   );
 }

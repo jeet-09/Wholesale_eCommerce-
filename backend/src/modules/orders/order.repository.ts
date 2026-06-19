@@ -62,6 +62,24 @@ export class OrderRepository extends BaseRepository {
     return this.exec(tx).order.update({ where: { id }, data });
   }
 
+  /**
+   * Record the actual dispatched quantity for one order line (partial
+   * fulfilment). Scoped to the order so a vendor can't touch another order's
+   * items. Returns the number of rows updated (0 = line not on this order).
+   */
+  async setItemDeliveredQuantity(
+    orderId: string,
+    orderItemId: string,
+    deliveredQuantity: Prisma.Decimal,
+    tx?: PrismaExecutor,
+  ): Promise<number> {
+    const result = await this.exec(tx).orderItem.updateMany({
+      where: { id: orderItemId, orderId },
+      data: { deliveredQuantity },
+    });
+    return result.count;
+  }
+
   async list(args: {
     skip: number;
     take: number;

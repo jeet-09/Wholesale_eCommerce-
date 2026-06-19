@@ -19,6 +19,7 @@ export interface OrderItemDto {
   unitPrice: string;
   quantity: string;
   subtotal: string;
+  deliveredQuantity: string | null;
 }
 
 export interface OrderStatusHistoryDto {
@@ -60,6 +61,15 @@ export interface OrderDto {
   advancePercent: string;
   advanceAmount: string;
   remainingAmount: string;
+  requestedDeliveryDate: string | null;
+  isSameDayDelivery: boolean;
+  sameDayCharge: string;
+  deliveryContactPhone: string | null;
+  dispatchNote: string | null;
+  dispatchedAt: string | null;
+  customerRating: number | null;
+  customerReview: string | null;
+  ratedAt: string | null;
   placedAt: string | null;
   paymentSubmittedAt: string | null;
   paymentVerifiedAt: string | null;

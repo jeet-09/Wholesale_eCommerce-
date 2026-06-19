@@ -111,12 +111,22 @@ ALTER TABLE orders ADD  CONSTRAINT chk_orders_advance_nonneg CHECK (advance_amou
 ALTER TABLE orders DROP CONSTRAINT IF EXISTS chk_orders_remaining_formula;
 ALTER TABLE orders ADD  CONSTRAINT chk_orders_remaining_formula
   CHECK (remaining_amount = total_amount - advance_amount);
+-- orders: same-day surcharge non-negative + restaurant review is a 1-5 star rating.
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS chk_orders_same_day_charge_nonneg;
+ALTER TABLE orders ADD  CONSTRAINT chk_orders_same_day_charge_nonneg CHECK (same_day_charge >= 0);
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS chk_orders_customer_rating_range;
+ALTER TABLE orders ADD  CONSTRAINT chk_orders_customer_rating_range
+  CHECK (customer_rating IS NULL OR (customer_rating BETWEEN 1 AND 5));
 
 -- order_items / cart_items: positive quantity, non-negative subtotal.
 ALTER TABLE order_items DROP CONSTRAINT IF EXISTS chk_order_items_qty_pos;
 ALTER TABLE order_items ADD  CONSTRAINT chk_order_items_qty_pos CHECK (quantity > 0);
 ALTER TABLE order_items DROP CONSTRAINT IF EXISTS chk_order_items_subtotal_nonneg;
 ALTER TABLE order_items ADD  CONSTRAINT chk_order_items_subtotal_nonneg CHECK (subtotal >= 0);
+-- order_items: delivered quantity (partial fulfilment) is non-negative when set.
+ALTER TABLE order_items DROP CONSTRAINT IF EXISTS chk_order_items_delivered_qty_nonneg;
+ALTER TABLE order_items ADD  CONSTRAINT chk_order_items_delivered_qty_nonneg
+  CHECK (delivered_quantity IS NULL OR delivered_quantity >= 0);
 ALTER TABLE cart_items DROP CONSTRAINT IF EXISTS chk_cart_items_qty_pos;
 ALTER TABLE cart_items ADD  CONSTRAINT chk_cart_items_qty_pos CHECK (quantity > 0);
 

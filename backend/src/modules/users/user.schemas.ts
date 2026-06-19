@@ -19,6 +19,9 @@ export const userResponseSchema = z.object({
   isEmailVerified: z.boolean(),
   isPhoneVerified: z.boolean(),
   lastLoginAt: z.string().nullable(),
+  roles: z.array(z.string()),
+  accountType: z.enum(['ADMIN', 'OPERATIONS', 'VENDOR', 'RESTAURANT', 'NONE']),
+  organizationName: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -45,9 +48,15 @@ export const updateUserSchema = z
 
 export const listUsersQuerySchema = paginationQuerySchema.extend({
   status: z.enum(['PENDING', 'ACTIVE', 'SUSPENDED', 'DEACTIVATED']).optional(),
+  role: z.nativeEnum(ROLES).optional(),
   search: z.string().trim().min(1).max(100).optional(),
+});
+
+export const setPasswordSchema = z.object({
+  newPassword: passwordSchema,
 });
 
 export type CreateUserInput = z.infer<typeof createUserSchema>;
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
 export type ListUsersQueryInput = z.infer<typeof listUsersQuerySchema>;
+export type SetPasswordInput = z.infer<typeof setPasswordSchema>;

@@ -20,6 +20,8 @@ export const PASSWORD_RESET_TTL_MINUTES = 30;
 export const SETTING_KEYS = {
   GST_PERCENTAGE: 'GST_PERCENTAGE',
   DELIVERY_CHARGES: 'DELIVERY_CHARGES',
+  /** Flat surcharge added when the restaurant requests same-day delivery. */
+  SAME_DAY_DELIVERY_SURCHARGE: 'SAME_DAY_DELIVERY_SURCHARGE',
   MIN_ORDER_VALUE: 'MIN_ORDER_VALUE',
   /** Advance % collected up front at checkout (project-working.md PAYMENT SYSTEM). */
   ADVANCE_PERCENTAGE: 'ADVANCE_PERCENTAGE',
@@ -40,6 +42,15 @@ export const DEFAULT_ADVANCE_PERCENT = 30;
 /** Default transportation markup (20%) — project-working.md PRODUCT PRICING FLOW. */
 export const DEFAULT_TRANSPORT_PERCENT = 20;
 
+/** Default same-day delivery surcharge (₹) if the setting row is absent. */
+export const DEFAULT_SAME_DAY_SURCHARGE = 150;
+
+/**
+ * How far ahead a restaurant may schedule delivery, in days from today
+ * (inclusive). Today (0) is allowed and triggers the same-day surcharge.
+ */
+export const MAX_DELIVERY_DAYS_AHEAD = 20;
+
 /** Aggregate/event names for the transactional outbox. */
 export const OUTBOX_AGGREGATE_ORDER = 'order';
 export const OUTBOX_AGGREGATE_OFFER = 'vendor_offer';
@@ -49,7 +60,10 @@ export const OUTBOX_EVENTS = {
   ORDER_PAYMENT_SUBMITTED: 'ORDER_PAYMENT_SUBMITTED',
   ORDER_PAYMENT_VERIFIED: 'ORDER_PAYMENT_VERIFIED',
   ORDER_VENDOR_ASSIGNED: 'ORDER_VENDOR_ASSIGNED',
+  ORDER_OUT_FOR_DELIVERY: 'ORDER_OUT_FOR_DELIVERY',
+  ORDER_DELIVERED: 'ORDER_DELIVERED',
   ORDER_COMPLETED: 'ORDER_COMPLETED',
+  ORDER_REVIEWED: 'ORDER_REVIEWED',
   OFFER_SUBMITTED: 'OFFER_SUBMITTED',
   PRICE_RECALCULATED: 'PRICE_RECALCULATED',
 } as const;

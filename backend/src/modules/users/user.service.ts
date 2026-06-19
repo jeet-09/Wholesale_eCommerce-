@@ -1,7 +1,12 @@
 import type { Prisma, User } from '@prisma/client';
 import type { FastifyBaseLogger } from 'fastify';
 
-import { DuplicateResourceError, InternalError, NotFoundError } from '../../common/errors';
+import {
+  DuplicateResourceError,
+  InternalError,
+  NotFoundError,
+  ValidationError,
+} from '../../common/errors';
 import { buildPaginationMeta, parseSort, toPaginationArgs } from '../../common/pagination';
 import type { PaginationMeta } from '../../common/pagination';
 import type { RequestContext } from '../../common/types';
@@ -13,7 +18,12 @@ import type { UserRepository } from './user.repository';
 import type { RoleRepository } from './role.repository';
 import { toUserDto } from './user.mapper';
 import type { UserDto } from './user.types';
-import type { CreateUserInput, ListUsersQueryInput, UpdateUserInput } from './user.schemas';
+import type {
+  CreateUserInput,
+  ListUsersQueryInput,
+  SetPasswordInput,
+  UpdateUserInput,
+} from './user.schemas';
 
 const SORTABLE_FIELDS = ['createdAt', 'email', 'firstName', 'lastName', 'status'] as const;
 
@@ -41,6 +51,9 @@ export class UserService {
     const where: Prisma.UserWhereInput = {};
     if (query.status) {
       where.status = query.status;
+    }
+    if (query.role) {
+      where.userRoles = { some: { role: { name: query.role } } };
     }
     if (query.search) {
       where.OR = [
@@ -134,6 +147,11 @@ export class UserService {
 
   async suspend(id: string, ctx: RequestContext): Promise<UserDto> {
     await this.ensureExists(id);
+    if (id === ctx.userId) {
+      throw new ValidationError('You cannot suspend your own account', [
+        { field: 'id', message: 'Self-suspension is not allowed' },
+      ]);
+    }
     const updated = await this.users.updateStatus(id, 'SUSPENDED');
     await this.audit.record({
       userId: ctx.userId,
@@ -145,6 +163,44 @@ export class UserService {
       requestId: ctx.requestId,
     });
     return toUserDto(updated);
+  }
+
+  /** Lift a suspension — restore a SUSPENDED/DEACTIVATED account to ACTIVE. */
+  async reactivate(id: string, ctx: RequestContext): Promise<UserDto> {
+    await this.ensureExists(id);
+    const updated = await this.users.updateStatus(id, 'ACTIVE');
+    await this.audit.record({
+      userId: ctx.userId,
+      entityType: 'user',
+      entityId: id,
+      action: AUDIT_ACTIONS.USER_REACTIVATED,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      requestId: ctx.requestId,
+    });
+    return toUserDto(updated);
+  }
+
+  /**
+   * Admin-set a new password directly (no email round-trip). All existing
+   * sessions keep working until their access tokens expire; the user signs in
+   * with the new password next time.
+   */
+  async setPassword(id: string, input: SetPasswordInput, ctx: RequestContext): Promise<UserDto> {
+    const user = await this.ensureExists(id);
+    const passwordHash = await this.hasher.hash(input.newPassword);
+    await this.users.updatePassword(id, passwordHash);
+    await this.audit.record({
+      userId: ctx.userId,
+      entityType: 'user',
+      entityId: id,
+      action: AUDIT_ACTIONS.USER_PASSWORD_RESET,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      requestId: ctx.requestId,
+    });
+    this.logger.info({ userId: id, by: ctx.userId }, 'password reset by admin');
+    return toUserDto(user);
   }
 
   private async ensureExists(id: string): Promise<User> {

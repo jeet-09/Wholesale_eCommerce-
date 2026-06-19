@@ -9,6 +9,7 @@ import type {
   CancelOrderInput,
   CompleteOrderInput,
   ListOrdersQueryInput,
+  OverrideStatusInput,
   PlaceOrderInput,
   RejectOrderInput,
   UpdateFulfilmentInput,
@@ -83,6 +84,18 @@ export class OrderController {
     reply: FastifyReply,
   ): Promise<void> => {
     const order = await this.service.complete(
+      request.params.id,
+      request.body,
+      getRequestContext(request),
+    );
+    await reply.code(200).send(ok(order, request.id));
+  };
+
+  overrideStatus = async (
+    request: FastifyRequest<{ Params: UuidParam; Body: OverrideStatusInput }>,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    const order = await this.service.overrideStatus(
       request.params.id,
       request.body,
       getRequestContext(request),

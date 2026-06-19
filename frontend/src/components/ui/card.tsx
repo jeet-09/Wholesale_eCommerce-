@@ -42,6 +42,7 @@ const STATUS_STYLES: Record<string, string> = {
   VENDOR_ACCEPTED: 'bg-blue-100 text-blue-800',
   PROCESSING: 'bg-indigo-100 text-indigo-800',
   READY_FOR_DELIVERY: 'bg-purple-100 text-purple-800',
+  OUT_FOR_DELIVERY: 'bg-sky-100 text-sky-800',
   DELIVERED: 'bg-green-100 text-green-800',
   COMPLETED: 'bg-green-100 text-green-800',
   CANCELLED: 'bg-gray-200 text-gray-700',
@@ -54,6 +55,9 @@ const STATUS_STYLES: Record<string, string> = {
   APPROVED: 'bg-green-100 text-green-800',
   ACTIVE: 'bg-green-100 text-green-800',
   INACTIVE: 'bg-gray-200 text-gray-700',
+  // Account states
+  SUSPENDED: 'bg-red-100 text-red-800',
+  DEACTIVATED: 'bg-gray-200 text-gray-700',
   OUT_OF_STOCK: 'bg-red-100 text-red-800',
   // Payment states
   SUBMITTED: 'bg-amber-100 text-amber-800',

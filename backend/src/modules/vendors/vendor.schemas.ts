@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { paginationQuerySchema } from '../../common/pagination';
+import { emailSchema, nameSchema, passwordSchema, phoneSchema } from '../../common/schemas';
 
 const PROFILE_STATUSES = ['PENDING', 'ACTIVE', 'SUSPENDED'] as const;
 
@@ -28,5 +29,20 @@ export const listVendorsQuerySchema = paginationQuerySchema.extend({
   search: z.string().trim().min(1).max(100).optional(),
 });
 
+/**
+ * Admin-initiated vendor onboarding: provisions the organization, vendor
+ * profile, and an owner login in one step so the vendor can sign in immediately.
+ */
+export const createVendorAccountSchema = z.object({
+  vendorName: z.string().trim().min(1).max(200),
+  businessCategory: z.string().trim().min(1).max(100).optional(),
+  firstName: nameSchema,
+  lastName: nameSchema,
+  email: emailSchema,
+  phone: phoneSchema.optional(),
+  password: passwordSchema,
+});
+
 export type UpdateVendorInput = z.infer<typeof updateVendorSchema>;
 export type ListVendorsQueryInput = z.infer<typeof listVendorsQuerySchema>;
+export type CreateVendorAccountInput = z.infer<typeof createVendorAccountSchema>;

@@ -12,6 +12,12 @@ export interface UserDto {
   isEmailVerified: boolean;
   isPhoneVerified: boolean;
   lastLoginAt: string | null;
+  /** Role names granted to the user (empty when relations were not loaded). */
+  roles: string[];
+  /** Coarse account category derived from roles, for the admin console. */
+  accountType: 'ADMIN' | 'OPERATIONS' | 'VENDOR' | 'RESTAURANT' | 'NONE';
+  /** Owning organization name, when the user belongs to one. */
+  organizationName: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -45,3 +51,20 @@ export const authUserInclude = {
 } satisfies Prisma.UserInclude;
 
 export type AuthUser = Prisma.UserGetPayload<{ include: typeof authUserInclude }>;
+
+/**
+ * Lighter include for admin account listings — role names + the owning
+ * organization (name/type) so the console can show "who is who" without the
+ * full permission graph.
+ */
+export const userListInclude = {
+  userRoles: { include: { role: { select: { name: true } } } },
+  memberships: {
+    where: { deletedAt: null },
+    orderBy: { createdAt: 'asc' },
+    take: 1,
+    include: { organization: { select: { name: true, organizationType: true } } },
+  },
+} satisfies Prisma.UserInclude;
+
+export type UserWithRoles = Prisma.UserGetPayload<{ include: typeof userListInclude }>;

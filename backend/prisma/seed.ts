@@ -12,6 +12,7 @@ import { ALL_PERMISSIONS, ROLE_PERMISSIONS } from '../src/common/permissions';
 import { ROLES, type RoleName } from '../src/common/types';
 import {
   DEFAULT_ADVANCE_PERCENT,
+  DEFAULT_SAME_DAY_SURCHARGE,
   DEFAULT_TRANSPORT_PERCENT,
   SETTING_KEYS,
 } from '../src/common/constants';
@@ -103,6 +104,7 @@ async function seedSettings(): Promise<void> {
   const settings = [
     { key: SETTING_KEYS.GST_PERCENTAGE, value: '5', valueType: 'NUMBER' as const, description: 'Default GST percentage applied to orders' },
     { key: SETTING_KEYS.DELIVERY_CHARGES, value: '0', valueType: 'NUMBER' as const, description: 'Flat delivery charge per order' },
+    { key: SETTING_KEYS.SAME_DAY_DELIVERY_SURCHARGE, value: String(DEFAULT_SAME_DAY_SURCHARGE), valueType: 'NUMBER' as const, description: 'Extra charge added when the restaurant requests same-day (today) delivery' },
     { key: SETTING_KEYS.MIN_ORDER_VALUE, value: '0', valueType: 'NUMBER' as const, description: 'Minimum order value to checkout' },
     { key: SETTING_KEYS.ADVANCE_PERCENTAGE, value: String(DEFAULT_ADVANCE_PERCENT), valueType: 'NUMBER' as const, description: 'Advance percentage collected up front at checkout' },
     { key: SETTING_KEYS.TRANSPORT_PERCENTAGE, value: String(DEFAULT_TRANSPORT_PERCENT), valueType: 'NUMBER' as const, description: 'Transportation markup added on top of the average vendor price' },

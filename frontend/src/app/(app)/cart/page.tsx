@@ -1,17 +1,20 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardBody } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { Input, Label } from '@/components/ui/input';
 import { useCart, useRemoveCartItem, useUpdateCartItem } from '@/hooks/use-cart';
 import { usePlaceOrder } from '@/hooks/use-orders';
 import { ApiError } from '@/lib/api';
 import { useAuthStore } from '@/lib/auth-store';
-import { formatMoney, formatQuantity, titleCase } from '@/lib/format';
+import { formatDateOnly, formatMoney, titleCase, toDateInputValue } from '@/lib/format';
 import type { CartItem } from '@/lib/types';
+
+/** How far ahead a delivery can be booked (mirrors backend MAX_DELIVERY_DAYS_AHEAD). */
+const MAX_DELIVERY_DAYS_AHEAD = 20;
 
 function CartItemRow({ item }: { item: CartItem }) {
   const updateItem = useUpdateCartItem();
@@ -73,6 +76,15 @@ export default function CartPage() {
   const { data: cart, isLoading, isError, error } = useCart(isRestaurant);
   const placeOrder = usePlaceOrder();
   const [placeError, setPlaceError] = useState<string | null>(null);
+  const [deliveryDate, setDeliveryDate] = useState('');
+
+  const { todayStr, maxStr } = useMemo(() => {
+    const today = new Date();
+    const max = new Date();
+    max.setDate(max.getDate() + MAX_DELIVERY_DAYS_AHEAD);
+    return { todayStr: toDateInputValue(today), maxStr: toDateInputValue(max) };
+  }, []);
+  const isSameDay = deliveryDate !== '' && deliveryDate === todayStr;
 
   if (!isRestaurant) {
     return (
@@ -84,8 +96,12 @@ export default function CartPage() {
 
   const onCheckout = () => {
     setPlaceError(null);
+    if (!deliveryDate) {
+      setPlaceError('Please choose a delivery date.');
+      return;
+    }
     placeOrder.mutate(
-      {},
+      { requestedDeliveryDate: deliveryDate },
       {
         onSuccess: () => router.push('/orders'),
         onError: (err) =>
@@ -147,18 +163,45 @@ export default function CartPage() {
                 <span className="text-gray-500">Items</span>
                 <span className="text-gray-900">{cart.itemCount}</span>
               </div>
-              <div className="flex justify-between py-2 text-sm">
+              <div className="flex justify-between border-b border-gray-100 py-2 text-sm">
                 <span className="text-gray-500">Subtotal</span>
                 <span className="font-medium text-gray-900">{formatMoney(cart.subtotal)}</span>
               </div>
-              <p className="mb-4 mt-2 text-xs text-gray-400">
+
+              <div className="mt-4">
+                <Label htmlFor="delivery-date">Delivery date</Label>
+                <Input
+                  id="delivery-date"
+                  type="date"
+                  min={todayStr}
+                  max={maxStr}
+                  value={deliveryDate}
+                  onChange={(e) => setDeliveryDate(e.target.value)}
+                />
+                <p className="mt-1 text-xs text-gray-400">
+                  Choose any day up to {formatDateOnly(maxStr)} ({MAX_DELIVERY_DAYS_AHEAD} days ahead).
+                </p>
+              </div>
+
+              {isSameDay && (
+                <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <span className="font-semibold">Same-day delivery:</span> a rush surcharge will be
+                  added to the delivery charges. Pick a later date to avoid it.
+                </div>
+              )}
+
+              <p className="mb-4 mt-3 text-xs text-gray-400">
                 Taxes and delivery are calculated when the order is placed. After placing, you’ll
                 pay a 30% advance and upload the payment proof. Administration then assigns a vendor.
               </p>
               {placeError && (
                 <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{placeError}</p>
               )}
-              <Button className="w-full" onClick={onCheckout} disabled={placeOrder.isPending}>
+              <Button
+                className="w-full"
+                onClick={onCheckout}
+                disabled={placeOrder.isPending || !deliveryDate}
+              >
                 {placeOrder.isPending ? 'Placing order…' : 'Place order'}
               </Button>
             </CardBody>

@@ -4,7 +4,12 @@ import { getRequestContext } from '../../common/http';
 import { ok, paginated } from '../../common/responses';
 import type { UuidParam } from '../../common/schemas';
 import type { UserService } from './user.service';
-import type { CreateUserInput, ListUsersQueryInput, UpdateUserInput } from './user.schemas';
+import type {
+  CreateUserInput,
+  ListUsersQueryInput,
+  SetPasswordInput,
+  UpdateUserInput,
+} from './user.schemas';
 
 export class UserController {
   constructor(private readonly service: UserService) {}
@@ -50,6 +55,26 @@ export class UserController {
     reply: FastifyReply,
   ): Promise<void> => {
     const user = await this.service.suspend(request.params.id, getRequestContext(request));
+    await reply.code(200).send(ok(user, request.id));
+  };
+
+  reactivate = async (
+    request: FastifyRequest<{ Params: UuidParam }>,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    const user = await this.service.reactivate(request.params.id, getRequestContext(request));
+    await reply.code(200).send(ok(user, request.id));
+  };
+
+  setPassword = async (
+    request: FastifyRequest<{ Params: UuidParam; Body: SetPasswordInput }>,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    const user = await this.service.setPassword(
+      request.params.id,
+      request.body,
+      getRequestContext(request),
+    );
     await reply.code(200).send(ok(user, request.id));
   };
 }

@@ -51,6 +51,26 @@ export interface User {
   updatedAt: string;
 }
 
+/** Admin console view of a user account (roles + owning org included). */
+export type AccountType = 'ADMIN' | 'OPERATIONS' | 'VENDOR' | 'RESTAURANT' | 'NONE';
+
+export interface Account {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string | null;
+  status: string;
+  isEmailVerified: boolean;
+  isPhoneVerified: boolean;
+  lastLoginAt: string | null;
+  roles: string[];
+  accountType: AccountType;
+  organizationName: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AuthContext {
   roles: string[];
   permissions: string[];
@@ -254,6 +274,8 @@ export interface OrderItem {
   unitPrice: string;
   quantity: string;
   subtotal: string;
+  /** Actual quantity the vendor dispatched (set on partial fulfilment). */
+  deliveredQuantity: string | null;
 }
 
 export interface OrderStatusHistory {
@@ -282,6 +304,15 @@ export interface Order {
   advancePercent: string;
   advanceAmount: string;
   remainingAmount: string;
+  requestedDeliveryDate: string | null;
+  isSameDayDelivery: boolean;
+  sameDayCharge: string;
+  deliveryContactPhone: string | null;
+  dispatchNote: string | null;
+  dispatchedAt: string | null;
+  customerRating: number | null;
+  customerReview: string | null;
+  ratedAt: string | null;
   placedAt: string | null;
   paymentSubmittedAt: string | null;
   paymentVerifiedAt: string | null;

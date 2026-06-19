@@ -10,9 +10,17 @@ export interface OrderFilters extends Record<string, QueryValue> {
   page?: number;
   pageSize?: number;
   status?: string;
+  /** ACTIVE = live orders, ARCHIVED = completed/rejected/cancelled. */
+  statusGroup?: 'ACTIVE' | 'ARCHIVED';
   vendorId?: string;
   restaurantId?: string;
   sort?: string;
+}
+
+/** One line of partial-fulfilment info sent at dispatch. */
+export interface DispatchItemInput {
+  orderItemId: string;
+  deliveredQuantity: number;
 }
 
 export function useOrders(filters: OrderFilters) {
@@ -55,7 +63,7 @@ function useOrderMutation<TVars>(
 export function usePlaceOrder() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: { notes?: string }) =>
+    mutationFn: (body: { requestedDeliveryDate: string; notes?: string }) =>
       apiRequest<Order>('/orders', {
         method: 'POST',
         body,
@@ -64,6 +72,7 @@ export function usePlaceOrder() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['cart'] });
       void queryClient.invalidateQueries({ queryKey: ['orders'] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
 }
@@ -82,17 +91,66 @@ export function useVendorRespond() {
   );
 }
 
-/** Vendor advances fulfilment (processing → ready → delivered). */
+/**
+ * Vendor advances fulfilment (processing → ready → out for delivery → delivered).
+ * Dispatching (OUT_FOR_DELIVERY) carries the delivery contact phone, an optional
+ * note, and the actual quantity sent per line item when stock was short.
+ */
 export function useUpdateFulfilment() {
-  return useOrderMutation(({ id, status, remarks }: { id: string; status: string; remarks?: string }) =>
-    apiRequest<Order>(`/orders/${id}/fulfilment`, { method: 'PATCH', body: { status, remarks } }),
+  return useOrderMutation(
+    ({
+      id,
+      status,
+      remarks,
+      deliveryContactPhone,
+      dispatchNote,
+      deliveredItems,
+    }: {
+      id: string;
+      status: string;
+      remarks?: string;
+      deliveryContactPhone?: string;
+      dispatchNote?: string;
+      deliveredItems?: DispatchItemInput[];
+    }) =>
+      apiRequest<Order>(`/orders/${id}/fulfilment`, {
+        method: 'PATCH',
+        body: { status, remarks, deliveryContactPhone, dispatchNote, deliveredItems },
+      }),
   );
 }
 
-/** Administration marks a delivered order COMPLETED (optionally rates the vendor). */
+/**
+ * Confirms a delivered order COMPLETED. The owning restaurant leaves a 1-5★
+ * review; Administration can complete as a fallback without a rating.
+ */
 export function useCompleteOrder() {
-  return useOrderMutation(({ id, rating, remarks }: { id: string; rating?: number; remarks?: string }) =>
-    apiRequest<Order>(`/orders/${id}/complete`, { method: 'POST', body: { rating, remarks } }),
+  return useOrderMutation(
+    ({
+      id,
+      rating,
+      review,
+      remarks,
+    }: {
+      id: string;
+      rating?: number;
+      review?: string;
+      remarks?: string;
+    }) =>
+      apiRequest<Order>(`/orders/${id}/complete`, {
+        method: 'POST',
+        body: { rating, review, remarks },
+      }),
+  );
+}
+
+/**
+ * Admin super-power: force an order to any status, bypassing the normal state
+ * machine (out-of-band correction). Routing to a vendor still uses Assign.
+ */
+export function useOverrideOrderStatus() {
+  return useOrderMutation(({ id, status, remarks }: { id: string; status: string; remarks?: string }) =>
+    apiRequest<Order>(`/orders/${id}/status`, { method: 'PATCH', body: { status, remarks } }),
   );
 }
 

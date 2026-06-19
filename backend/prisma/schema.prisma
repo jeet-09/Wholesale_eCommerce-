@@ -159,8 +159,9 @@ enum CartStatus {
 // VENDOR_ACCEPTED     vendor accepted the order
 // PROCESSING          vendor is preparing the order
 // READY_FOR_DELIVERY  vendor marked the order ready
+// OUT_FOR_DELIVERY    vendor dispatched the goods (delivery contact + dispatched qty captured)
 // DELIVERED           vendor delivered the goods
-// COMPLETED           Administration verified completion (stock fulfilled, performance updated)
+// COMPLETED           restaurant/Administration confirmed completion (stock fulfilled, performance updated)
 // REJECTED            vendor rejected (re-assignable) or order rejected
 // CANCELLED           cancelled by restaurant/admin before fulfilment
 enum OrderStatus {
@@ -172,6 +173,7 @@ enum OrderStatus {
   VENDOR_ACCEPTED
   PROCESSING
   READY_FOR_DELIVERY
+  OUT_FOR_DELIVERY
   DELIVERED
   COMPLETED
   REJECTED
@@ -777,6 +779,23 @@ model Order {
   advanceAmount   Decimal     @map("advance_amount") @db.Decimal(14, 2)
   remainingAmount Decimal     @map("remaining_amount") @db.Decimal(14, 2)
 
+  // Delivery scheduling chosen by the restaurant at checkout. Same-day requests
+  // carry a surcharge (already folded into delivery_charges; same_day_charge is
+  // the informational breakdown so the total-formula CHECK still holds).
+  requestedDeliveryDate DateTime? @map("requested_delivery_date") @db.Timestamptz
+  isSameDayDelivery     Boolean   @default(false) @map("is_same_day_delivery")
+  sameDayCharge         Decimal   @default(0) @map("same_day_charge") @db.Decimal(14, 2)
+
+  // Dispatch details captured by the vendor when the card goes OUT_FOR_DELIVERY.
+  deliveryContactPhone String?   @map("delivery_contact_phone")
+  dispatchNote         String?   @map("dispatch_note")
+  dispatchedAt         DateTime? @map("dispatched_at") @db.Timestamptz
+
+  // Restaurant feedback captured at completion (1-5 stars + optional comment).
+  customerRating Int?      @map("customer_rating")
+  customerReview String?   @map("customer_review")
+  ratedAt        DateTime? @map("rated_at") @db.Timestamptz
+
   placedAt          DateTime? @map("placed_at") @db.Timestamptz
   paymentSubmittedAt DateTime? @map("payment_submitted_at") @db.Timestamptz
   paymentVerifiedAt DateTime? @map("payment_verified_at") @db.Timestamptz
@@ -821,6 +840,9 @@ model OrderItem {
   unitPrice   Decimal     @map("unit_price") @db.Decimal(14, 2)
   quantity    Decimal     @db.Decimal(14, 3)
   subtotal    Decimal     @db.Decimal(14, 2)
+  // Actual quantity the vendor dispatched (partial fulfilment). NULL until the
+  // card goes OUT_FOR_DELIVERY; the ordered `quantity` snapshot stays immutable.
+  deliveredQuantity Decimal? @map("delivered_quantity") @db.Decimal(14, 3)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 

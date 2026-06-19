@@ -10,6 +10,7 @@ const IN_PROGRESS_STATUSES = [
   'VENDOR_ACCEPTED',
   'PROCESSING',
   'READY_FOR_DELIVERY',
+  'OUT_FOR_DELIVERY',
   'DELIVERED',
 ] as const;
 
@@ -131,7 +132,7 @@ export class AnalyticsService {
       this.analytics.countPayments({ status: 'SUBMITTED' }),
       this.analytics.countOrders({ status: 'VENDOR_ASSIGNED' }),
       this.analytics.countOrdersInStatuses(
-        ['VENDOR_ACCEPTED', 'PROCESSING', 'READY_FOR_DELIVERY', 'DELIVERED'],
+        ['VENDOR_ACCEPTED', 'PROCESSING', 'READY_FOR_DELIVERY', 'OUT_FOR_DELIVERY', 'DELIVERED'],
         {},
       ),
       this.analytics.countOrders({ status: 'COMPLETED' }),

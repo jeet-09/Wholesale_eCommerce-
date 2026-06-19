@@ -183,7 +183,17 @@ export function buildContainer(deps: ContainerDeps): Container {
     userRepository,
     auditService,
   );
-  const vendorService = new VendorService(vendorRepository);
+  const vendorService = new VendorService(
+    db,
+    vendorRepository,
+    userRepository,
+    roleRepository,
+    organizationRepository,
+    memberRepository,
+    hasher,
+    auditService,
+    logger,
+  );
   const restaurantService = new RestaurantService(restaurantRepository);
   const categoryService = new CategoryService(categoryRepository);
   const productService = new ProductService(

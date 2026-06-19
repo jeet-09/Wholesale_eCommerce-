@@ -10,8 +10,17 @@ import {
 } from '../../common/schemas';
 import type { UuidParam } from '../../common/schemas';
 import type { VendorController } from './vendor.controller';
-import { listVendorsQuerySchema, updateVendorSchema, vendorResponseSchema } from './vendor.schemas';
-import type { ListVendorsQueryInput, UpdateVendorInput } from './vendor.schemas';
+import {
+  createVendorAccountSchema,
+  listVendorsQuerySchema,
+  updateVendorSchema,
+  vendorResponseSchema,
+} from './vendor.schemas';
+import type {
+  CreateVendorAccountInput,
+  ListVendorsQueryInput,
+  UpdateVendorInput,
+} from './vendor.schemas';
 
 export function registerVendorRoutes(app: FastifyInstance, controller: VendorController): void {
   const router = app.withTypeProvider<ZodTypeProvider>();
@@ -29,6 +38,21 @@ export function registerVendorRoutes(app: FastifyInstance, controller: VendorCon
       preHandler: [app.authenticate, app.authorize(PERMISSIONS.VENDOR_VIEW)],
     },
     controller.list,
+  );
+
+  router.post<{ Body: CreateVendorAccountInput }>(
+    '/vendors',
+    {
+      schema: {
+        tags: ['vendors'],
+        summary: 'Create a vendor account with an owner login (admin)',
+        security: [{ bearerAuth: [] }],
+        body: createVendorAccountSchema,
+        response: { 201: successEnvelope(vendorResponseSchema), ...commonErrorResponses },
+      },
+      preHandler: [app.authenticate, app.authorize(PERMISSIONS.VENDOR_CREATE)],
+    },
+    controller.create,
   );
 
   router.get<{ Params: UuidParam }>(

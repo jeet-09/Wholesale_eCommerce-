@@ -16,6 +16,8 @@ import {
   DEFAULT_ADVANCE_PERCENT,
   DEFAULT_CURRENCY,
   DEFAULT_GST_PERCENT,
+  DEFAULT_SAME_DAY_SURCHARGE,
+  MAX_DELIVERY_DAYS_AHEAD,
   OUTBOX_AGGREGATE_ORDER,
   OUTBOX_EVENTS,
   SETTING_KEYS,
@@ -42,6 +44,7 @@ import type {
   CancelOrderInput,
   CompleteOrderInput,
   ListOrdersQueryInput,
+  OverrideStatusInput,
   PlaceOrderInput,
   RejectOrderInput,
   UpdateFulfilmentInput,
@@ -63,7 +66,8 @@ const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   VENDOR_ASSIGNED: ['VENDOR_ACCEPTED', 'PENDING_ADMIN_REVIEW', 'REJECTED', 'CANCELLED'],
   VENDOR_ACCEPTED: ['PROCESSING', 'REJECTED', 'CANCELLED'],
   PROCESSING: ['READY_FOR_DELIVERY', 'CANCELLED'],
-  READY_FOR_DELIVERY: ['DELIVERED', 'CANCELLED'],
+  READY_FOR_DELIVERY: ['OUT_FOR_DELIVERY', 'CANCELLED'],
+  OUT_FOR_DELIVERY: ['DELIVERED', 'CANCELLED'],
   DELIVERED: ['COMPLETED'],
   COMPLETED: [],
   REJECTED: [],
@@ -76,7 +80,48 @@ const RESERVED_STATUSES: OrderStatus[] = [
   'VENDOR_ACCEPTED',
   'PROCESSING',
   'READY_FOR_DELIVERY',
+  'OUT_FOR_DELIVERY',
 ];
+
+/** Terminal statuses — the order card moves to the "archived" board. */
+const ARCHIVED_STATUSES: OrderStatus[] = ['COMPLETED', 'REJECTED', 'CANCELLED'];
+
+/** Start of `date` in the server's local time zone (midnight). */
+function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+/**
+ * Resolve a `YYYY-MM-DD` delivery request against the server clock.
+ * Throws if the date is malformed, in the past, or beyond the booking window.
+ */
+function resolveDeliveryDate(input: string, now: Date): { date: Date; isSameDay: boolean } {
+  const parts = input.split('-');
+  const year = Number(parts[0]);
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
+  const date = new Date(year, month - 1, day);
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    throw new ValidationError('Invalid delivery date');
+  }
+  const today = startOfDay(now);
+  const latest = startOfDay(now);
+  latest.setDate(latest.getDate() + MAX_DELIVERY_DAYS_AHEAD);
+  if (date.getTime() < today.getTime()) {
+    throw new ValidationError('Delivery date cannot be in the past');
+  }
+  if (date.getTime() > latest.getTime()) {
+    throw new ValidationError(
+      `Delivery date cannot be more than ${MAX_DELIVERY_DAYS_AHEAD} days from today`,
+    );
+  }
+  return { date, isSameDay: date.getTime() === today.getTime() };
+}
 
 export class OrderService {
   constructor(
@@ -101,6 +146,10 @@ export class OrderService {
   async placeOrder(ctx: RequestContext, input: PlaceOrderInput): Promise<OrderDto> {
     const restaurantId = requireRestaurantId(ctx);
     const now = new Date();
+    const { date: requestedDeliveryDate, isSameDay } = resolveDeliveryDate(
+      input.requestedDeliveryDate,
+      now,
+    );
 
     const orderId = await this.db.$transaction(async (tx) => {
       const cart = await this.carts.getActiveByRestaurant(restaurantId, tx);
@@ -113,9 +162,21 @@ export class OrderService {
         DEFAULT_GST_PERCENT,
         tx,
       );
-      const deliveryCharges = (
+      const baseDelivery = (
         await this.settings.getNumber(SETTING_KEYS.DELIVERY_CHARGES, 0, tx)
       ).toDecimalPlaces(2);
+      // Same-day requests pay a surcharge; it is folded into deliveryCharges so
+      // the order-total CHECK holds, and recorded in sameDayCharge for the breakdown.
+      const sameDayCharge = isSameDay
+        ? (
+            await this.settings.getNumber(
+              SETTING_KEYS.SAME_DAY_DELIVERY_SURCHARGE,
+              DEFAULT_SAME_DAY_SURCHARGE,
+              tx,
+            )
+          ).toDecimalPlaces(2)
+        : new Prisma.Decimal(0);
+      const deliveryCharges = baseDelivery.plus(sameDayCharge).toDecimalPlaces(2);
       const advancePercent = await this.settings.getNumber(
         SETTING_KEYS.ADVANCE_PERCENTAGE,
         DEFAULT_ADVANCE_PERCENT,
@@ -180,6 +241,9 @@ export class OrderService {
           advancePercent,
           advanceAmount,
           remainingAmount,
+          requestedDeliveryDate,
+          isSameDayDelivery: isSameDay,
+          sameDayCharge,
           placedAt: now,
           createdBy: ctx.userId,
           restaurant: { connect: { id: restaurantId } },
@@ -212,6 +276,8 @@ export class OrderService {
             restaurantId,
             totalAmount: totalAmount.toFixed(2),
             advanceAmount: advanceAmount.toFixed(2),
+            requestedDeliveryDate: requestedDeliveryDate.toISOString(),
+            isSameDayDelivery: isSameDay,
           },
         },
         tx,
@@ -258,6 +324,10 @@ export class OrderService {
     const where: Prisma.OrderWhereInput = {};
     if (query.status) {
       where.status = query.status;
+    } else if (query.statusGroup === 'ARCHIVED') {
+      where.status = { in: ARCHIVED_STATUSES };
+    } else if (query.statusGroup === 'ACTIVE') {
+      where.status = { notIn: ARCHIVED_STATUSES };
     }
 
     if (isPrivileged(ctx)) {
@@ -369,7 +439,12 @@ export class OrderService {
     return this.requireDto(id);
   }
 
-  /** Vendor advances fulfilment: PROCESSING → READY_FOR_DELIVERY → DELIVERED. */
+  /**
+   * Vendor advances fulfilment: PROCESSING → READY_FOR_DELIVERY →
+   * OUT_FOR_DELIVERY → DELIVERED. Dispatching (OUT_FOR_DELIVERY) records the
+   * delivery contact, an optional dispatch note, and — when stock was short —
+   * the actual quantity sent per line item (partial fulfilment).
+   */
   async updateFulfilment(
     id: string,
     input: UpdateFulfilmentInput,
@@ -387,32 +462,80 @@ export class OrderService {
 
     const now = new Date();
     const data: Prisma.OrderUpdateInput = {};
+    let event: string = OUTBOX_EVENTS.ORDER_STATUS_CHANGED;
+    let auditNew: Record<string, unknown> | undefined;
+
     if (input.status === 'READY_FOR_DELIVERY') {
       data.readyAt = now;
+    } else if (input.status === 'OUT_FOR_DELIVERY') {
+      data.dispatchedAt = now;
+      data.deliveryContactPhone = input.deliveryContactPhone ?? null;
+      data.dispatchNote = input.dispatchNote ?? null;
+      event = OUTBOX_EVENTS.ORDER_OUT_FOR_DELIVERY;
+      auditNew = {
+        deliveryContactPhone: input.deliveryContactPhone ?? null,
+        partialLines: input.deliveredItems?.length ?? 0,
+      };
     } else if (input.status === 'DELIVERED') {
       data.deliveredAt = now;
+      event = OUTBOX_EVENTS.ORDER_DELIVERED;
     }
 
-    await this.db.$transaction((tx) =>
-      this.recordTransition(order, input.status, data, ctx, tx, {
-        remarks: input.remarks ?? null,
-        event: OUTBOX_EVENTS.ORDER_STATUS_CHANGED,
+    // Partial-fulfilment quantities are only meaningful at dispatch; validate
+    // that every referenced line actually belongs to this order.
+    const deliveredItems = input.deliveredItems ?? [];
+    if (deliveredItems.length > 0) {
+      const orderItemIds = new Set(order.items.map((item) => item.id));
+      for (const line of deliveredItems) {
+        if (!orderItemIds.has(line.orderItemId)) {
+          throw new ValidationError('A dispatched item does not belong to this order', [
+            { field: 'deliveredItems', message: line.orderItemId },
+          ]);
+        }
+      }
+    }
+
+    await this.db.$transaction(async (tx) => {
+      for (const line of deliveredItems) {
+        await this.orders.setItemDeliveredQuantity(
+          order.id,
+          line.orderItemId,
+          new Prisma.Decimal(line.deliveredQuantity),
+          tx,
+        );
+      }
+      await this.recordTransition(order, input.status, data, ctx, tx, {
+        remarks: input.remarks ?? input.dispatchNote ?? null,
+        event,
         auditAction: AUDIT_ACTIONS.ORDER_STATUS_CHANGED,
-      }),
-    );
+        auditNew,
+      });
+    });
     return this.requireDto(id);
   }
 
   /**
-   * Administration confirms a delivered order as COMPLETED: fulfil the reserved
-   * stock and roll the vendor's performance counters (completion, fulfilment
-   * time, optional rating).
+   * Confirms a delivered order as COMPLETED: fulfil the reserved stock and roll
+   * the vendor's performance counters (completion, fulfilment time, rating).
+   * The restaurant that owns the order confirms it and leaves a 1-5★ review;
+   * Administration can also complete as a fallback (rating optional).
    */
   async complete(id: string, input: CompleteOrderInput, ctx: RequestContext): Promise<OrderDto> {
     const order = await this.orders.findByIdWithRelations(id);
     if (!order) {
       throw new NotFoundError('Order not found');
     }
+
+    const actingAsRestaurant = !isPrivileged(ctx);
+    if (actingAsRestaurant) {
+      if (!ctx.restaurantId || order.restaurantId !== ctx.restaurantId) {
+        throw new ForbiddenError('You can only complete your own orders');
+      }
+      if (!input.rating) {
+        throw new ValidationError('Please rate your order (1-5 stars) to complete it');
+      }
+    }
+
     this.assertTransitionAllowed(order.status, 'COMPLETED');
     const vendorId = order.assignedVendorId;
     if (!vendorId) {
@@ -424,6 +547,13 @@ export class OrderService {
     const fulfilmentMinutes = startedAt
       ? Math.max(0, Math.round((now.getTime() - startedAt.getTime()) / 60000))
       : 0;
+
+    const completionData: Prisma.OrderUpdateInput = { completedAt: now };
+    if (input.rating) {
+      completionData.customerRating = input.rating;
+      completionData.customerReview = input.review ?? null;
+      completionData.ratedAt = now;
+    }
 
     await this.db.$transaction(async (tx) => {
       await this.fulfilForVendor(order, vendorId, tx);
@@ -437,8 +567,8 @@ export class OrderService {
         increment.ratingCount = { increment: 1 };
       }
       await this.performance.increment(vendorId, increment, tx);
-      await this.recordTransition(order, 'COMPLETED', { completedAt: now }, ctx, tx, {
-        remarks: input.remarks ?? null,
+      await this.recordTransition(order, 'COMPLETED', completionData, ctx, tx, {
+        remarks: input.remarks ?? input.review ?? null,
         event: OUTBOX_EVENTS.ORDER_COMPLETED,
         auditAction: AUDIT_ACTIONS.ORDER_COMPLETED,
         auditNew: { vendorId, rating: input.rating ?? null, fulfilmentMinutes },
@@ -504,6 +634,87 @@ export class OrderService {
       });
     });
     return this.requireDto(id);
+  }
+
+  /**
+   * Admin-only out-of-band status correction. Bypasses the normal state machine
+   * so staff can unstick or re-route an order, but still records full status
+   * history, an audit entry, and an outbox event. Reserved offer stock is
+   * released when the order leaves a reserved status for a non-reserved one.
+   *
+   * Note: overriding *into* VENDOR_ASSIGNED does NOT pick a vendor or reserve
+   * stock — use Assign for that. This is a deliberate safety boundary.
+   */
+  async overrideStatus(
+    id: string,
+    input: OverrideStatusInput,
+    ctx: RequestContext,
+  ): Promise<OrderDto> {
+    const order = await this.orders.findByIdWithRelations(id);
+    if (!order) {
+      throw new NotFoundError('Order not found');
+    }
+    const target = input.status;
+    if (order.status === target) {
+      throw new ValidationError('Order is already in that status');
+    }
+
+    const now = new Date();
+    await this.db.$transaction(async (tx) => {
+      const leavingReserved =
+        Boolean(order.assignedVendorId) &&
+        RESERVED_STATUSES.includes(order.status) &&
+        !RESERVED_STATUSES.includes(target);
+      if (leavingReserved && order.assignedVendorId) {
+        await this.releaseForVendor(order, order.assignedVendorId, tx);
+      }
+
+      await this.recordTransition(
+        order,
+        target,
+        this.overrideTimestamps(target, order, now),
+        ctx,
+        tx,
+        {
+          remarks: input.remarks ?? 'Status overridden by admin',
+          event: OUTBOX_EVENTS.ORDER_STATUS_CHANGED,
+          auditAction: AUDIT_ACTIONS.ORDER_STATUS_OVERRIDDEN,
+          auditNew: { status: target, from: order.status, override: true },
+        },
+      );
+    });
+
+    return this.requireDto(id);
+  }
+
+  /** Best-effort milestone timestamps so the card stepper stays coherent after an override. */
+  private overrideTimestamps(
+    target: OrderStatus,
+    order: OrderWithRelations,
+    now: Date,
+  ): Prisma.OrderUpdateInput {
+    switch (target) {
+      case 'PAYMENT_RECEIVED':
+        return { paymentVerifiedAt: order.paymentVerifiedAt ?? now };
+      case 'PENDING_ADMIN_REVIEW':
+        return { reviewedAt: order.reviewedAt ?? now };
+      case 'VENDOR_ACCEPTED':
+        return { acceptedAt: order.acceptedAt ?? now };
+      case 'READY_FOR_DELIVERY':
+        return { readyAt: order.readyAt ?? now };
+      case 'OUT_FOR_DELIVERY':
+        return { dispatchedAt: order.dispatchedAt ?? now };
+      case 'DELIVERED':
+        return { deliveredAt: order.deliveredAt ?? now };
+      case 'COMPLETED':
+        return { completedAt: order.completedAt ?? now };
+      case 'REJECTED':
+        return { rejectedAt: order.rejectedAt ?? now };
+      case 'CANCELLED':
+        return { cancelledAt: order.cancelledAt ?? now };
+      default:
+        return {};
+    }
   }
 
   /**

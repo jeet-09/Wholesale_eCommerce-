@@ -3,8 +3,8 @@ import type { Prisma, User } from '@prisma/client';
 import { BaseRepository } from '../../database/base.repository';
 import type { ListResult } from '../../common/types';
 import type { PrismaExecutor } from '../../database/prisma';
-import { authUserInclude } from './user.types';
-import type { AuthUser, CreateUserData, UpdateUserData } from './user.types';
+import { authUserInclude, userListInclude } from './user.types';
+import type { AuthUser, CreateUserData, UpdateUserData, UserWithRoles } from './user.types';
 
 interface ListArgs {
   skip: number;
@@ -82,10 +82,16 @@ export class UserRepository extends BaseRepository {
     });
   }
 
-  async list(args: ListArgs): Promise<ListResult<User>> {
+  async list(args: ListArgs): Promise<ListResult<UserWithRoles>> {
     const where: Prisma.UserWhereInput = { ...args.where, ...this.notDeleted };
     const [items, total] = await this.db.$transaction([
-      this.db.user.findMany({ where, skip: args.skip, take: args.take, orderBy: args.orderBy }),
+      this.db.user.findMany({
+        where,
+        skip: args.skip,
+        take: args.take,
+        orderBy: args.orderBy,
+        include: userListInclude,
+      }),
       this.db.user.count({ where }),
     ]);
     return { items, total };

@@ -4,7 +4,11 @@ import { getRequestContext } from '../../common/http';
 import { ok, paginated } from '../../common/responses';
 import type { UuidParam } from '../../common/schemas';
 import type { VendorService } from './vendor.service';
-import type { ListVendorsQueryInput, UpdateVendorInput } from './vendor.schemas';
+import type {
+  CreateVendorAccountInput,
+  ListVendorsQueryInput,
+  UpdateVendorInput,
+} from './vendor.schemas';
 
 export class VendorController {
   constructor(private readonly service: VendorService) {}
@@ -15,6 +19,14 @@ export class VendorController {
   ): Promise<void> => {
     const { items, pagination } = await this.service.list(request.query);
     await reply.code(200).send(paginated(items, pagination, request.id));
+  };
+
+  create = async (
+    request: FastifyRequest<{ Body: CreateVendorAccountInput }>,
+    reply: FastifyReply,
+  ): Promise<void> => {
+    const vendor = await this.service.createAccount(request.body, getRequestContext(request));
+    await reply.code(201).send(ok(vendor, request.id));
   };
 
   getById = async (

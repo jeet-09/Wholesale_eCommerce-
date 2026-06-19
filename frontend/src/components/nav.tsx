@@ -58,6 +58,7 @@ export function Nav() {
     { href: '/orders', label: 'Orders' },
     ...(authz.can(PERMISSIONS.PAYMENT_VERIFY) ? [{ href: '/payments', label: 'Payments' }] : []),
     ...(authz.can(PERMISSIONS.PERFORMANCE_VIEW) ? [{ href: '/vendors', label: 'Vendors' }] : []),
+    ...(authz.isAdmin ? [{ href: '/manage/accounts', label: 'Accounts' }] : []),
   ];
 
   return (
