@@ -67,6 +67,8 @@ export interface Account {
   roles: string[];
   accountType: AccountType;
   organizationName: string | null;
+  /** Completed orders placed by this account's restaurant; null if not a restaurant. */
+  completedOrderCount: number | null;
   createdAt: string;
   updatedAt: string;
 }

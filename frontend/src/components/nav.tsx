@@ -57,7 +57,9 @@ export function Nav() {
     ...(authz.isRestaurant ? [{ href: '/cart', label: 'Cart' }] : []),
     { href: '/orders', label: 'Orders' },
     ...(authz.can(PERMISSIONS.PAYMENT_VERIFY) ? [{ href: '/payments', label: 'Payments' }] : []),
-    ...(authz.can(PERMISSIONS.PERFORMANCE_VIEW) ? [{ href: '/vendors', label: 'Vendors' }] : []),
+    // Vendor scorecards are an Administration/Admin monitoring tool — hidden from
+    // the Vendor and Restaurant portals (a vendor must not see other vendors).
+    ...(authz.isStaff ? [{ href: '/vendors', label: 'Vendors' }] : []),
     ...(authz.isAdmin ? [{ href: '/manage/accounts', label: 'Accounts' }] : []),
   ];
 

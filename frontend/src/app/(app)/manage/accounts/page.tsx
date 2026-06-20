@@ -273,6 +273,13 @@ function AccountRow({
         <AccountTypeBadge type={account.accountType} />
       </td>
       <td className="px-4 py-3 text-gray-700">{account.organizationName ?? '—'}</td>
+      <td className="px-4 py-3 text-right text-gray-700">
+        {account.completedOrderCount === null ? (
+          <span className="text-gray-400">—</span>
+        ) : (
+          <span className="font-medium text-gray-900">{account.completedOrderCount}</span>
+        )}
+      </td>
       <td className="px-4 py-3">
         <StatusBadge status={account.status} />
       </td>
@@ -431,6 +438,7 @@ export default function ManageAccountsPage() {
                   <th className="px-4 py-3 font-medium">User</th>
                   <th className="px-4 py-3 font-medium">Type</th>
                   <th className="px-4 py-3 font-medium">Organization</th>
+                  <th className="px-4 py-3 text-right font-medium">Completed orders</th>
                   <th className="px-4 py-3 font-medium">Status</th>
                   <th className="px-4 py-3 font-medium">Last login</th>
                   <th className="px-4 py-3 text-right font-medium">Actions</th>

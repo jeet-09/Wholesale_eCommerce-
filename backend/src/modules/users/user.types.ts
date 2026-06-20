@@ -18,6 +18,11 @@ export interface UserDto {
   accountType: 'ADMIN' | 'OPERATIONS' | 'VENDOR' | 'RESTAURANT' | 'NONE';
   /** Owning organization name, when the user belongs to one. */
   organizationName: string | null;
+  /**
+   * Number of orders this account's restaurant has placed and seen through to
+   * COMPLETED. `null` for non-restaurant accounts (the metric does not apply).
+   */
+  completedOrderCount: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -63,7 +68,12 @@ export const userListInclude = {
     where: { deletedAt: null },
     orderBy: { createdAt: 'asc' },
     take: 1,
-    include: { organization: { select: { name: true, organizationType: true } } },
+    include: {
+      // `restaurant` lets the admin console count completed orders per account.
+      organization: {
+        select: { name: true, organizationType: true, restaurant: { select: { id: true } } },
+      },
+    },
   },
 } satisfies Prisma.UserInclude;
 

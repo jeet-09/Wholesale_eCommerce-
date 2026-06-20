@@ -96,4 +96,21 @@ export class UserRepository extends BaseRepository {
     ]);
     return { items, total };
   }
+
+  /**
+   * COMPLETED order counts keyed by restaurant id, for the given restaurants.
+   * Restaurants with no completed orders are simply absent from the map (the
+   * caller treats a miss as zero).
+   */
+  async countCompletedOrdersByRestaurant(restaurantIds: string[]): Promise<Map<string, number>> {
+    if (restaurantIds.length === 0) {
+      return new Map();
+    }
+    const rows = await this.db.order.groupBy({
+      by: ['restaurantId'],
+      where: { restaurantId: { in: restaurantIds }, status: 'COMPLETED', ...this.notDeleted },
+      _count: { _all: true },
+    });
+    return new Map(rows.map((row) => [row.restaurantId, row._count._all]));
+  }
 }

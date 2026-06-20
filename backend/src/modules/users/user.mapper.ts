@@ -17,7 +17,7 @@ function deriveAccountType(roles: string[]): UserDto['accountType'] {
   return 'NONE';
 }
 
-export function toUserDto(user: UserDtoSource): UserDto {
+export function toUserDto(user: UserDtoSource, completedOrderCount: number | null = null): UserDto {
   const roles = user.userRoles?.map((userRole) => userRole.role.name) ?? [];
   const organizationName = user.memberships?.[0]?.organization?.name ?? null;
   return {
@@ -33,6 +33,7 @@ export function toUserDto(user: UserDtoSource): UserDto {
     roles,
     accountType: deriveAccountType(roles),
     organizationName,
+    completedOrderCount,
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),
   };

@@ -22,6 +22,7 @@ export const userResponseSchema = z.object({
   roles: z.array(z.string()),
   accountType: z.enum(['ADMIN', 'OPERATIONS', 'VENDOR', 'RESTAURANT', 'NONE']),
   organizationName: z.string().nullable(),
+  completedOrderCount: z.number().int().nonnegative().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

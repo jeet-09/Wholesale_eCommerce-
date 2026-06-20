@@ -69,8 +69,23 @@ export class UserService {
 
     const { skip, take } = toPaginationArgs(query);
     const result = await this.users.list({ skip, take, where, orderBy });
+
+    // Enrich restaurant accounts with their COMPLETED-order count in one extra
+    // grouped query (rather than N per-row lookups). Non-restaurant accounts get
+    // `null` since "orders placed" doesn't apply to them.
+    const restaurantIds = result.items
+      .map((user) => user.memberships[0]?.organization?.restaurant?.id)
+      .filter((id): id is string => Boolean(id));
+    const completedByRestaurant = await this.users.countCompletedOrdersByRestaurant(restaurantIds);
+
     return {
-      items: result.items.map(toUserDto),
+      items: result.items.map((user) => {
+        const restaurantId = user.memberships[0]?.organization?.restaurant?.id ?? null;
+        const completedOrderCount = restaurantId
+          ? completedByRestaurant.get(restaurantId) ?? 0
+          : null;
+        return toUserDto(user, completedOrderCount);
+      }),
       pagination: buildPaginationMeta(result.total, query),
     };
   }
