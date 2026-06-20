@@ -19,6 +19,15 @@ export interface AuthContextLoader {
   load(userId: string, meta: AuthContextMeta): Promise<RequestContext | null>;
 }
 
+/**
+ * Evicts a user's cached RBAC/identity context so the next request rebuilds it
+ * from the database. Services that mutate a user's status or org binding depend
+ * on this (not the concrete cache) to keep authorization changes immediate.
+ */
+export interface AuthContextInvalidator {
+  invalidate(userId: string): void;
+}
+
 interface AuthOptions {
   loader: AuthContextLoader;
 }

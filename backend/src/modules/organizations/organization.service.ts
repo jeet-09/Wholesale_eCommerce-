@@ -4,6 +4,7 @@ import { ConflictError, NotFoundError } from '../../common/errors';
 import { buildPaginationMeta, parseSort, toPaginationArgs } from '../../common/pagination';
 import type { PaginationMeta } from '../../common/pagination';
 import type { RequestContext } from '../../common/types';
+import type { AuthContextInvalidator } from '../../middleware/auth';
 import type { AuditService } from '../audit/audit.service';
 import { AUDIT_ACTIONS } from '../audit/audit.types';
 import type { UserRepository } from '../users/user.repository';
@@ -30,6 +31,7 @@ export class OrganizationService {
     private readonly addresses: OrganizationAddressRepository,
     private readonly users: UserRepository,
     private readonly audit: AuditService,
+    private readonly authContext: AuthContextInvalidator,
   ) {}
 
   async getById(id: string): Promise<OrganizationDto> {
@@ -115,6 +117,10 @@ export class OrganizationService {
       status: input.status,
       createdBy: ctx.userId,
     });
+
+    // The user's org/vendor/restaurant binding is part of their cached auth
+    // context — evict it so the new membership is reflected immediately.
+    this.authContext.invalidate(input.userId);
 
     await this.audit.record({
       userId: ctx.userId,

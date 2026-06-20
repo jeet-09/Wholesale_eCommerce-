@@ -5,6 +5,7 @@ import { buildPaginationMeta, parseSort, toPaginationArgs } from '../../common/p
 import type { PaginationMeta } from '../../common/pagination';
 import type { RequestContext } from '../../common/types';
 import { slugify } from '../../utils/slug';
+import { TtlCache } from '../../utils/cache';
 import type { CategoryRepository } from './category.repository';
 import { toCategoryDto } from './category.mapper';
 import type { CategoryDto } from './category.types';
@@ -16,16 +17,39 @@ import type {
 
 const SORTABLE_FIELDS = ['displayOrder', 'name', 'createdAt'] as const;
 
+/**
+ * Categories are reference data: read often (catalog browsing) but changed
+ * rarely and only through this service. We cache reads with a comfortable TTL
+ * and wipe the whole category cache on any write, so a mutation is reflected
+ * immediately while never serving stale lists/items between edits.
+ */
+const CATEGORY_TTL_MS = 5 * 60_000;
+const CATEGORY_LIST_MAX_ENTRIES = 256;
+const CATEGORY_BY_ID_MAX_ENTRIES = 1_024;
+
+type CategoryListResult = { items: CategoryDto[]; pagination: PaginationMeta };
+
 export class CategoryService {
+  private readonly listCache = new TtlCache<CategoryListResult>({
+    ttlMs: CATEGORY_TTL_MS,
+    maxEntries: CATEGORY_LIST_MAX_ENTRIES,
+  });
+  private readonly byIdCache = new TtlCache<CategoryDto>({
+    ttlMs: CATEGORY_TTL_MS,
+    maxEntries: CATEGORY_BY_ID_MAX_ENTRIES,
+  });
+
   constructor(private readonly categories: CategoryRepository) {}
 
   async getById(id: string): Promise<CategoryDto> {
-    return toCategoryDto(await this.ensureExists(id));
+    return this.byIdCache.getOrLoad(id, async () => toCategoryDto(await this.ensureExists(id)));
   }
 
-  async list(
-    query: ListCategoriesQueryInput,
-  ): Promise<{ items: CategoryDto[]; pagination: PaginationMeta }> {
+  async list(query: ListCategoriesQueryInput): Promise<CategoryListResult> {
+    return this.listCache.getOrLoad(JSON.stringify(query), () => this.queryList(query));
+  }
+
+  private async queryList(query: ListCategoriesQueryInput): Promise<CategoryListResult> {
     const where: Prisma.CategoryWhereInput = {};
     if (query.status) {
       where.status = query.status;
@@ -75,6 +99,7 @@ export class CategoryService {
       createdBy: ctx.userId,
       updatedBy: ctx.userId,
     });
+    this.invalidateCache();
     return toCategoryDto(created);
   }
 
@@ -98,6 +123,7 @@ export class CategoryService {
       status: input.status,
       updatedBy: ctx.userId,
     });
+    this.invalidateCache();
     return toCategoryDto(updated);
   }
 
@@ -108,6 +134,13 @@ export class CategoryService {
       throw new ConflictError('Cannot delete a category that has subcategories');
     }
     await this.categories.softDelete(id, ctx.userId);
+    this.invalidateCache();
+  }
+
+  /** Wipe all cached category reads after a mutation (create/update/delete). */
+  private invalidateCache(): void {
+    this.listCache.clear();
+    this.byIdCache.clear();
   }
 
   private async ensureExists(id: string): Promise<Category> {

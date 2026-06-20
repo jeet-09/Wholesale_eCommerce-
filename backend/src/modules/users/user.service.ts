@@ -11,6 +11,7 @@ import { buildPaginationMeta, parseSort, toPaginationArgs } from '../../common/p
 import type { PaginationMeta } from '../../common/pagination';
 import type { RequestContext } from '../../common/types';
 import type { Database } from '../../database/prisma';
+import type { AuthContextInvalidator } from '../../middleware/auth';
 import type { PasswordHasher } from '../../utils/password';
 import type { AuditService } from '../audit/audit.service';
 import { AUDIT_ACTIONS } from '../audit/audit.types';
@@ -35,6 +36,7 @@ export class UserService {
     private readonly hasher: PasswordHasher,
     private readonly audit: AuditService,
     private readonly logger: FastifyBaseLogger,
+    private readonly authContext: AuthContextInvalidator,
   ) {}
 
   async getById(id: string): Promise<UserDto> {
@@ -168,6 +170,9 @@ export class UserService {
       ]);
     }
     const updated = await this.users.updateStatus(id, 'SUSPENDED');
+    // Drop any cached RBAC context so the suspension is enforced on the very
+    // next request rather than after the cache TTL.
+    this.authContext.invalidate(id);
     await this.audit.record({
       userId: ctx.userId,
       entityType: 'user',
@@ -184,6 +189,8 @@ export class UserService {
   async reactivate(id: string, ctx: RequestContext): Promise<UserDto> {
     await this.ensureExists(id);
     const updated = await this.users.updateStatus(id, 'ACTIVE');
+    // Clear any stale cached context so the restored account is usable at once.
+    this.authContext.invalidate(id);
     await this.audit.record({
       userId: ctx.userId,
       entityType: 'user',

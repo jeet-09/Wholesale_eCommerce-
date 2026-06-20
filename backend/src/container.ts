@@ -175,13 +175,22 @@ export function buildContainer(deps: ContainerDeps): Container {
     signer,
     logger,
   );
-  const userService = new UserService(db, userRepository, roleRepository, hasher, auditService, logger);
+  const userService = new UserService(
+    db,
+    userRepository,
+    roleRepository,
+    hasher,
+    auditService,
+    logger,
+    authContextService,
+  );
   const organizationService = new OrganizationService(
     organizationRepository,
     memberRepository,
     addressRepository,
     userRepository,
     auditService,
+    authContextService,
   );
   const vendorService = new VendorService(
     db,
