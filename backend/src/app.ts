@@ -55,6 +55,33 @@ export async function buildApp(deps: BuildAppDeps): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
       level: env.LOG_LEVEL,
+      // Defense-in-depth: scrub credentials/secrets from every log line. Logs
+      // are often shipped to third-party sinks and retained, so a leaked token
+      // or password here is a real breach. Covers request headers, the
+      // Set-Cookie response header, and common sensitive field names anywhere.
+      redact: {
+        paths: [
+          'req.headers.authorization',
+          'req.headers.cookie',
+          'res.headers["set-cookie"]',
+          'password',
+          'newPassword',
+          'currentPassword',
+          'passwordHash',
+          'token',
+          'resetToken',
+          'refreshToken',
+          'accessToken',
+          '*.password',
+          '*.newPassword',
+          '*.passwordHash',
+          '*.token',
+          '*.resetToken',
+          '*.refreshToken',
+          '*.accessToken',
+        ],
+        censor: '[REDACTED]',
+      },
       // Pretty logs in dev; structured JSON in prod (README → Logging).
       transport:
         env.NODE_ENV === 'development'

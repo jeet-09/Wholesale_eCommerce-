@@ -26,8 +26,18 @@ function fastifyValidationToDetails(error: FastifyError): ErrorDetail[] {
   });
 }
 
+/**
+ * Token verification failures surface either as `@fastify/jwt`'s `FST_JWT_*`
+ * codes (structural checks) or the underlying `fast-jwt` `FAST_JWT_*` codes
+ * (signature/algorithm/expiry checks — e.g. a forged `alg: none` token throws
+ * `FAST_JWT_INVALID_ALGORITHM`). Both are client-supplied-token problems → 401,
+ * never a 500.
+ */
 function isJwtError(error: FastifyError): boolean {
-  return typeof error.code === 'string' && error.code.startsWith('FST_JWT');
+  return (
+    typeof error.code === 'string' &&
+    (error.code.startsWith('FST_JWT') || error.code.startsWith('FAST_JWT'))
+  );
 }
 
 /**
@@ -72,7 +82,8 @@ async function errorHandlerPlugin(app: FastifyInstance): Promise<void> {
     }
 
     if (isJwtError(error)) {
-      const expired = error.code === 'FST_JWT_AUTHORIZATION_TOKEN_EXPIRED';
+      const expired =
+        error.code === 'FST_JWT_AUTHORIZATION_TOKEN_EXPIRED' || error.code === 'FAST_JWT_EXPIRED';
       return reply
         .code(401)
         .send(
@@ -107,6 +118,21 @@ async function errorHandlerPlugin(app: FastifyInstance): Promise<void> {
       return reply
         .code(429)
         .send(fail(ERROR_CODES.RATE_LIMITED, error.message || 'Too many requests', [], requestId));
+    }
+
+    // Overload protection (e.g. @fastify/under-pressure) signals 503 to shed
+    // load. Surface a retryable, non-leaky message instead of a generic 500.
+    if (error.statusCode === 503) {
+      return reply
+        .code(503)
+        .send(
+          fail(
+            ERROR_CODES.SERVICE_UNAVAILABLE,
+            'Service is temporarily overloaded, please retry shortly',
+            [],
+            requestId,
+          ),
+        );
     }
 
     // Unknown: log full detail server-side, return a SAFE generic message.

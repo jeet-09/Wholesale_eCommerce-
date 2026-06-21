@@ -12,6 +12,7 @@ import {
 import { PASSWORD_RESET_TTL_MINUTES } from '../../common/constants';
 import type { RequestContext, RoleName } from '../../common/types';
 import { ROLES } from '../../common/types';
+import { isProduction } from '../../config/env';
 import type { Env } from '../../config/env';
 import type { Database, PrismaExecutor } from '../../database/prisma';
 import { generateRawToken, hmacSha256 } from '../../utils/crypto';
@@ -172,8 +173,11 @@ export class AuthService {
   async login(input: LoginInput, meta: AuthContextMeta): Promise<AuthResult> {
     const user = await this.users.findByEmail(input.email);
     // Same error whether the email is unknown or the password is wrong, to
-    // avoid leaking which accounts exist (user enumeration).
+    // avoid leaking which accounts exist (user enumeration). We also burn the
+    // same time a real bcrypt check would, so the *timing* of the two paths
+    // can't be used to enumerate accounts either.
     if (!user) {
+      await this.hasher.verifyDummy(input.password);
       throw new UnauthenticatedError('Invalid email or password');
     }
     const passwordOk = await this.hasher.verify(input.password, user.passwordHash);
@@ -247,9 +251,18 @@ export class AuthService {
     const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000);
     await this.authRepo.createPasswordResetToken({ userId: user.id, tokenHash, expiresAt });
 
-    // In production the outbox worker emails this token. For local development
-    // it is logged so the flow is testable without email infrastructure.
-    this.logger.info({ userId: user.id, resetToken: rawToken }, 'password reset requested');
+    // SECURITY: the raw reset token is a bearer credential — anyone holding it
+    // can take over the account. Never write it to logs outside local dev
+    // (production logs are widely accessible/retained). In production the outbox
+    // worker is responsible for emailing it to the user.
+    if (isProduction(this.env)) {
+      this.logger.info({ userId: user.id }, 'password reset requested');
+    } else {
+      this.logger.info(
+        { userId: user.id, resetToken: rawToken },
+        'password reset requested (token logged for local dev only)',
+      );
+    }
   }
 
   async confirmPasswordReset(input: PasswordResetConfirmInput): Promise<void> {

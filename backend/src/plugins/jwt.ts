@@ -23,7 +23,12 @@ async function jwtPlugin(app: FastifyInstance, options: JwtOptions): Promise<voi
 
   await app.register(jwt, {
     secret: env.JWT_ACCESS_SECRET,
-    sign: { expiresIn: env.JWT_ACCESS_EXPIRES_IN },
+    // Pin the algorithm on BOTH sign and verify. This is the key mitigation for
+    // "algorithm confusion" attacks (e.g. a forged token claiming `alg: none`
+    // or swapping HS/RS): the verifier only ever accepts HS256, so a token
+    // signed with anything else is rejected outright.
+    sign: { algorithm: 'HS256', expiresIn: env.JWT_ACCESS_EXPIRES_IN },
+    verify: { algorithms: ['HS256'] },
   });
 }
 
